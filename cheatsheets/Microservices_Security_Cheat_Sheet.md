@@ -4,7 +4,7 @@
 
 The microservice architecture is increasingly used to design and implement application systems in both cloud-based and on-premise environments, particularly for high-scale applications and services. However, it introduces a range of security challenges that must be addressed during both the design and implementation phases.
 
-Two of the most critical security concerns are authentication and authorization. As such, it is essential for application security architects to understand and correctly apply architectural patterns that support these concerns in microservices-based systems.
+Two of the most critical security concerns are authentication and authorization. As such, it is essential for application security architects to understand and correctly apply architectural patterns that implement these concerns in microservices-based systems.
 
 The goal of this cheat sheet is to describe common authentication and authorization patterns, highlight their trade-offs, and provide actionable recommendations. It also outlines common pitfalls to avoid when applying these patterns in practice.
 

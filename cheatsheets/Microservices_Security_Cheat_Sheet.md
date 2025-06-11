@@ -181,9 +181,11 @@ The following sections describe a spectrum of identity propagation patterns, ran
 
 ### External Identity Propagation
 
-In this pattern, the edge component forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) directly to internal services without transformation. The internal services are responsible for extracting the identity context (such as user ID, roles, or scopes) from this data and making access control decisions based on it. When an internal service needs to communicate with another service, it just forwards the authentication data further downstream.
+In this pattern, the edge component forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) directly to internal services without transformation. The internal services are responsible for the validation of the received authentication data, for extracting the identity context (such as user ID, roles, or scopes), and making access control decisions based on it. When an internal service needs to communicate with another service, it just forwards the authentication data further downstream.
 
 ![External Identity Propagation](../assets/External_Identity_Propagation.svg)
+
+The actual validation of the authentication data, represented by the dotted lines in steps 3 and 5 of the diagram above, depends on the type of authentication data used. For example, in the case of an opaque token, each service must call the appropriate identity provider endpoint to retrieve the associated data. If the token is self-descriptive, such as a JWT, the service needs the corresponding key material to verify its signature, and so on.
 
 #### Pros
 
@@ -200,11 +202,13 @@ In this pattern, the edge component forwards the externally received authenticat
 
 ### Simple Service-Level Identity Forwarding
 
-This pattern builds on the previous one but introduces a lightweight form of internal identity abstraction. While the edge component still forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) to internal services, each microservice no longer forwards this data unchanged. Instead, a microservice extracts the relevant identity information (e.g., user ID, roles, scopes) from the incoming request and creates a simplified representation of the identity—such as a plain JSON object, a self-signed JWT, or even a single value embedded in a query or path parameter—when making calls to downstream services.
+This pattern builds on the previous one but introduces a lightweight form of internal identity abstraction. While the edge component still forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) to internal services, each microservice no longer forwards this data unchanged. Instead, a microservice extracts the relevant identity information (e.g., user ID, roles, scopes) from the incoming request and creates a simplified representation of the identity - such as a plain JSON object, a self-signed JWT, or even a single value embedded in a query or path parameter—when making calls to downstream services.
 
 ![Simple Service-Level Identity Forwarding](../assets/Simple_Service_Level_Identity_Forwarding.svg)
 
 This internal identity representation is not strongly cryptographically protected and often relies on implicit trust between services. As a result, downstream services must trust the integrity and correctness of the identity information forwarded by their upstream callers.
+
+The actual validation of the received authentication data, represented by the dotted line in steps 3 of the diagram above, depends on the type of authentication data used. For example, in the case of an opaque token, the service must call the appropriate identity provider endpoint to retrieve the associated data. If the token is self-descriptive, such as a JWT, the service needs the corresponding key material to verify its signature, and so on.
 
 #### Pros
 
@@ -228,6 +232,8 @@ This pattern builds upon the previous pattern by introducing a trusted intermedi
 
 Downstream services trust the token issued by the authorization server rather than the calling service. The pattern improves the trust model and strengthens identity guarantees, but is tightly coupled to the OAuth2 protocol family and its associated token types.
 
+The actual validation of the tokens, represented by the dotted lines in steps 3 and 6 of the diagram above, depends on the type of the token used. For example, in the case of an opaque token, each service must call the appropriate identity provider endpoint to retrieve the associated data. If the token is self-descriptive, such as a JWT, the service needs the corresponding key material to verify its signature.
+
 #### Pros
 
 * **Improved trust model:** Downstream services do not need to trust upstream service implementations, only the authorization server.
@@ -246,6 +252,8 @@ Downstream services trust the token issued by the authorization server rather th
 The external request is authenticated at the system edge by a trusted component, which then generates a cryptographically signed (and/or encrypted) data structure representing the external entity’s identity and attributes (e.g., user ID, roles, permissions). This identity structure is propagated downstream to internal microservices. Internal services trust the signature from the edge issuer and use the identity structure to make access control decisions.
 
 ![Edge-Level Based Identity Propagation](../assets/Edge_Level_Based_Identity_Propagation.svg)
+
+Unlike in previous patterns, only the edge component is responsible for verifying externally provided authentication data with the identity provider that issued it. The specific verification process depends on the type and format of the authentication data, denoted by the dotted line in step 2. Further downstream, the microservices validate the signed identity structure issued by the trusted edge component. This object is typically a self-descriptive structure, such as a JWT, HTTP Message Signature, or a proprietary signed format. If so, each microservice must have access to the corresponding verification key to validate the authenticity of this token. The corresponding verification steps are denoted by the dotted lines in steps 5 and 7.
 
 #### Pros
 

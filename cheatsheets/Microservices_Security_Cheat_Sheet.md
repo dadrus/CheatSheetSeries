@@ -12,6 +12,8 @@ The goal of this cheat sheet is to describe common authentication and authorizat
 
 To lay the foundation for the patterns described in this cheat sheet, this section introduces the general building blocks of an authorization system, based on [NIST SP 800-162](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-162.pdf). While that standard focuses on Attribute-Based Access Control (ABAC), the architectural components it defines are relevant to nearly any access control system.
 
+![Authorization Reference Architecture](../assets/Authorization_Reference_Architecture.svg)
+
 These functional components are:
 
 * **Policy Administration Point (PAP):** Manages policies—offering tools for writing, testing, and updating access control logic.
@@ -67,6 +69,8 @@ When it comes to authentication and authorization, we have to differentiate betw
 
 * **First Party:** When the subject (given the story above - Alice) wants to access specific objects (like the article). The subject may own the object (like if the article was previously written by Alice), but doesn't need to (like when Alice wants to access an article written and published by somebody else).
 * **Third Party:** When a subject wants to act on behalf of another entity and access objects belonging to that entity. Given the example from above, imagine there is another service that implements capabilities to check grammar and wording and provide suggestions for better reading flow to article authors; and our blog post service supports such integration by providing corresponding APIs. Here, Alice would delegate her rights - since she performs the decision on who is allowed to access her article, she takes the role of the PDP - to that third-party service. So, Alice is the PDP, the third-party service is the subject, the article is still the object, and the implementation of the API used by the third party plays the role of the PEP.
+
+![First Party vs Third Party](../assets/First_vs_Third_Party_Context.svg)
 
 While exploring these contexts, it's important to understand that different protocols address different needs. Some protocols are tailored to the first-party context only, such as [Security Assertion Markup Language (SAML)](https://www.oasis-open.org/standard/saml/) or [Central Authentication Service (CAS)](https://apereo.github.io/cas/7.2.x/index.html), which are primarily designed for direct user authentication and carry attributes for authorization purposes within trusted domains. Others, like [Open Authorization (OAuth 2.0)](https://datatracker.ietf.org/doc/html/rfc6749), focus exclusively on the third-party context, enabling delegated access to resources on behalf of another party. And then there are protocols like [OpenID Connect (OIDC)](https://openid.net/specs/openid-connect-core-1_0.html) that support both contexts, combining identity information with delegated access.
 
@@ -139,20 +143,20 @@ This pattern builds on the Code-Mediated approach but further reduces complexity
 * **Configuration consistency:** All proxies across the service landscape must be configured uniformly to ensure consistent authentication behavior and user experience. Inconsistencies in configuration can lead to confusing user flows or even security vulnerabilities.
 * **Authentication data exposure risk:** Using the same authentication data (e.g., tokens, cookies, assertions) for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed - due to misconfiguration or an attacker gaining internal access - the leaked authentication data may enable unauthorized access to sensitive resources.
 
-## Edge-Level Authentication
+### Edge-Level Authentication
 
 In this pattern, authentication is handled at the system boundary by a shared component such as an API gateway or ingress proxy. This component authenticates incoming requests from external clients before they reach internal services. It integrates with one or multiple Identity Providers (IdPs) using protocols such as OIDC, OAuth2, SAML, or mTLS, and propagates verified identity information, typically via headers, to downstream services for further processing.
 
 This approach consolidates authentication logic into a single enforcement point, simplifies service implementation by removing per-service authentication handling, and is particularly common in Zero Trust architectures.
 
-### Pros
+#### Pros
 
 * **Improved consistency:** Authentication is performed consistently and uniform across services at a single entry point, reducing fragmentation, configuration drift, and improving auditability.
 * **Simplified service logic:** Internal services are relieved from implementing authentication logic, focusing only on authorization and business functionality.
 * **Faster service onboarding:** New services can rely on existing infrastructure for authentication, requiring minimal additional setup.
 * **Protocol-agnostic identity propagation:** Verified identity information can be propagated to internal services using trusted, implementation-independent formats (e.g., via a newly issued JWT, injected headers carrying identity information in plain form or protected using standards like HTTP Message Signatures), avoiding the need to handle raw external authentication data.
 
-### Cons
+#### Cons
 
 * **Limited granularity:** Fine-grained or per-endpoint authentication policies (e.g., step-up authentication) are generally harder to implement and may require additional coordination with downstream services. This heavily depends on the capabilities of the edge proxy
 * **Identity propagation challenges:** Ensuring secure and reliable propagation of identity context (e.g., via headers) requires strict validation and trust models between the edge and internal services. Proper governance can help overcome this limitation.
@@ -242,6 +246,42 @@ The external request is authenticated at the system edge by a trusted component,
 * **Revocation challenges:** Once issued, signed data structures may be valid for many services until expiration, complicating immediate revocation. That can however be mitigated by issuing short living signatures and by creating downstream service specific structures.
 * **Increased complexity at the edge:** The edge component must handle token signing and may become a critical security point.
 
+
+## Microservice Authentication Patterns
+
+Microservice authentication ensures secure and trusted communication between internal services in a distributed system. This section explores patterns for authenticating service-to-service interactions, focusing on verifying service identities and propagating context for authorization and auditing.
+
+### Mutual Transport Layer (mTLS) Authentication
+
+In this pattern, services authenticate one another at the transport layer using mutual TLS. During the TLS handshake, both the client (caller) and server (callee) present X.509 certificates, allowing each to verify the other's identity before exchanging any data. These certificates are typically issued and rotated by an internal Public Key Infrastructure (PKI) or service mesh.
+
+#### Pros
+
+* **Strong peer identity verification:** Each service can authenticate its communication partner using certificates from a shared trust domain.
+* **Built-in encryption and authenticity:** mTLS secures all communication at the transport layer.
+* **Protocol-agnostic:** Works transparently for HTTP, gRPC, or other protocols without changes to application logic.
+
+#### Cons
+
+* **Operational complexity:** Certificate issuance, rotation, and revocation require automation and infrastructure (e.g., mesh, PKI, SPIRE).
+* **Limited application-level context:** Certificates provide service-level identity but lack granular attributes (e.g., purpose, scopes, tenancy) for fine-grained authorization, auditing, or delegation, requiring additional application-layer mechanisms.
+
+### Token Based Authentication
+
+In this pattern, the calling service (caller) authenticates itself by attaching a token to each request to another microservice (callee). The token is issued by a special security token service after the service authenticates using its credentials (e.g., service ID and a secret). Upon reception of the token, the collee can verify it (online or offline), extract the caller’s identity and further attributes and use the information for further processing or the request.
+
+#### Pros
+
+* **Rich application-level context:** Tokens can carry detailed attributes (e.g., roles, tenancy, permissions), enabling fine-grained authorization and business logic at the application layer, as well as tracking of business-level actors or intents, facilitating compliance and delegated authorization.
+* **Flexible integration:** Tokens can be attached to various protocols (e.g., HTTP headers, gRPC metadata), supporting diverse service architectures.
+
+#### Cons
+
+* **Operational complexity:** Issuing, validating, and revoking tokens requires careful coordination and infrastructure to ensure security and scalability.
+* **Issuer scalability and reliability:** The token service must be highly available and performant to avoid bottlenecks or single points of failure.
+* **Dependency on transport-layer security:** Token-based authentication requires TLS to protect token confidentiality and prevent replay attacks.
+
+
 ## Authorization Patterns
 
 Given the reference architecture described above, we can now examine common authorization patterns and explore the trade-offs they entail.
@@ -249,6 +289,8 @@ Given the reference architecture described above, we can now examine common auth
 ### Decentralized Service-Level Access Control
 
 In this pattern, most of the functional components from the reference architecture are implemented directly within each microservice. Even the Policy Information Points (PIPs) may be embedded into the service logic (e.g., via database or configuration entries) if the microservice is responsible for the all relevant attributes itself. However, this is rarely the case, and most microservices must integrate with other services to retrieve required attributes, treating those other services as external PIPs.
+
+![Decentralized Service-Level Access Control](../assets/Decentralized_Service_Level_Access_Control.svg)
 
 The access control rules are typically implemented using native language constructs (e.g., `if`/`else` statements), either inline with business logic functions or via abstraction mechanisms such as interceptors.
 
@@ -285,7 +327,9 @@ This pattern aims to address the first three drawbacks of the previous pattern, 
 
 The PDP can be implemented as a library (e.g., [Casbin](https://casbin.org/)) embedded in the service’s codebase, or as a local sidecar process (e.g., [Open Policy Agent](https://www.openpolicyagent.org/)). Authorization rules are now defined using the PDP’s domain-specific language (e.g., Rego in the case of OPA), rather than being hardcoded into the service logic. Typically, the PDPs with this pattern implement the so-called Policy-Based Access Control (PBAC) approach.
 
-The microservice continues to act as the PEP, calling into the local PDP to make access decisions during request handling. To make an authorization decision, the PDP requires attributes, which may either be available within the service or retrieved from external sources (PIPs). Some PDPs support data-fetching logic within the policy itself, allowing them to directly retrieve the necessary attributes at runtime.
+![Centralized Service-Level Access Control with embedded PDP](../assets/Centralized_Service_Level_Access_Control_with_embedded_PDP.svg)
+
+The microservice continues to act as the PEP, calling into the local PDP to make access decisions during request handling. To make an authorization decision, the PDP requires attributes, which may either be available within the service or retrieved from external sources (PIPs). Some PDPs support data-fetching logic within the policy itself, allowing them to directly retrieve the necessary attributes at runtime. This is represented by 1 and 2 in the diagram above. Both connections are just an abstraction and denote logic communication paths.
 
 Although this pattern significantly improves maintainability and consistency of access control logic, it introduces some new challenges that are worth considering, and does not resolve all the challenges inherent to the previous pattern.
 
@@ -314,6 +358,8 @@ Due to these remaining gaps, “accept by default” behaviors remain a real ris
 
 This pattern extends the previous one and aims to address not only the "Hardcoded Rules," "Code Against the Role," and policy governance issues from the "Decentralized Service-Level Access Control" pattern, but also the limitation of "Limited Auditability". As before, policies are managed centrally - meaning they are defined independently of the service code, typically in a shared repository and subject to versioning, review, and approval processes. However, unlike the previous pattern where evaluation happens locally via an embedded PDP, here access decisions are made by an external PDP. "External" in this context means that the PDP is not embedded within the service but runs as a separate service, which the microservices communicate with at runtime. This PDP may be shared across a domain (in domain driven design sense), scoped to a business unit, or truly central depending on organizational needs.
 
+![Centralized Service-Level Access Control with external PDP](../assets/Centralized_Service_Level_Access_Control_with_external_PDP.svg)
+
 As with the previous pattern, authorization rules are expressed using the PDP’s domain-specific language. However, this pattern supports a broader range of PDP types. In addition to Policy-Based Access Control (PBAC) systems such as OPA or [XACML](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=xacml)-based engines, it also accommodates Relationship-Based Access Control (ReBAC) systems like [SpiceDB](https://authzed.com/spicedb) or [OpenFGA](https://openfga.dev/), which trace back to the [Zanzibar paper from Google](https://research.google/pubs/zanzibar-googles-consistent-global-authorization-system/) as well as [Next-Generation Access Control (NGAC)](https://webstore.ansi.org/standards/incits/incits5652020) approaches. Unlike PBAC systems, which typically operate on stateless policy evaluations, ReBAC and NGAC systems rely on dedicated data stores to manage authorization models or object graphs, which are central to how decisions are calculated.
 
 Each microservice continues to act as the PEP, calling the central PDP during request handling to obtain access decisions. The PDP requires relevant attributes to evaluate access. In PBAC systems, these attributes may either be passed in by the service or fetched by the PDP itself, depending on its capabilities. ReBAC and NGAC systems usually expect most relevant attributes and relationships to be stored in their internal databases, though some (such as SpiceDB, or OpenFGA already referenced above) allow limited attribute injection at request time.
@@ -341,9 +387,11 @@ Although this pattern improves observability and supports a broader range of acc
 As with the previous patterns, some gaps remain - particularly around enforcement coverage and observability - which can result in “accept by default” behaviors and ultimately lead to broken access control vulnerabilities.
 
 
-### Edge-level Authorization (Classic)
+### Edge-Level Authorization (Classic)
 
 This pattern aims to address several shortcomings of Decentralized Service-Level Access Control, particularly inconsistent enforcement, policy sprawl, and limited observability. Instead of embedding authorization logic within each service, access control is moved to the system’s perimeter—typically implemented via API gateways, ingress controllers, or reverse proxies.
+
+![Edge-Level Authorization (Classic)](../assets/Edge_Level_Authorization_Classic.svg)
 
 Since authorization must follow authentication, this pattern tightly couples authentication and authorization at the network boundary. Gateways or proxies serve as the Policy Enforcement Point (PEP), and either evaluate policies locally (using embedded logic or libraries, similar to the “centralized with embedded PDP” pattern) or delegate decisions to an external Policy Decision Point (PDP) (as in the “centralized service-level access control” pattern).
 
@@ -364,11 +412,13 @@ Since all external traffic flows through the edge component, this is the first p
 * **Performance overhead:** Delegating decisions to an external PDP introduces additional network hops, which may impact latency-sensitive applications.
 * **Socio-technical challenges:** In many organizations, API gateways are operated by infrastructure or platform teams, meaning development teams cannot directly manage authorization policies or authentication configurations. This separation of responsibilities requires close coordination between developers and operations/security, which often reduces delivery velocity due to communication and process overhead, especially in complex ecosystems with many roles and evolving access control rules and the need for flexible authentication flows.
 
-### Edge-level Authorization (Modern)
+### Edge-Level Authorization (Modern)
 
 This pattern evolves the classic edge-level authorization approach by combining multiple established patterns, such as centralized PDPs, identity propagation mechanisms, and contextual data injection, to overcome key limitations of earlier edge-centric models.
 
 While enforcement still occurs at the perimeter via proxies, or gateways, this approach allows per-service customization through "Authorization Contracts" - declarative definitions of how identity and context are gathered, how authorization is performed, and how decisions are propagated. Through these contracts, proxies can perform context-aware access decisions and relay structured authorization results to downstream services, such as in the form of signed tokens or enriched (and signed) headers.
+
+![Edge-Level Authorization (Modern)](../assets/Edge_Level_Authorization_Modern.svg)
 
 Instead of embedding rigid policy logic or centralizing control in infrastructure teams, this pattern emphasizes composability, autonomy, and observability, enabling each team to define how their endpoints are protected, while still benefiting from centralized governance and enforcement guarantees.
 
@@ -390,38 +440,4 @@ Instead of embedding rigid policy logic or centralizing control in infrastructur
 * **Policy distribution complexity:** Ensuring the correct version of a policy is evaluated in context of the specific service version requires additional coordination. This mainly depends on PDP capabilities and tooling.
 * **Operational complexity:** While contracts empower teams with autonomy, effective governance requires clear guidelines and automated validation tools to prevent misconfiguration or misuse.
 * **Dependency sprawl:** Accessing external PIPs or custom APIs adds more components to the system. Without careful management through standardized logging and robust tooling, this can lead to delays or inconsistent visibility.
-
-## Microservice Authentication Patterns
-
-Microservice authentication ensures secure and trusted communication between internal services in a distributed system. This section explores patterns for authenticating service-to-service interactions, focusing on verifying service identities and propagating context for authorization and auditing.
-
-### Mutual Transport Layer (mTLS) Authentication
-
-In this pattern, services authenticate one another at the transport layer using mutual TLS. During the TLS handshake, both the client (caller) and server (callee) present X.509 certificates, allowing each to verify the other's identity before exchanging any data. These certificates are typically issued and rotated by an internal Public Key Infrastructure (PKI) or service mesh.
-
-#### Pros
-
-* **Strong peer identity verification:** Each service can authenticate its communication partner using certificates from a shared trust domain.
-* **Built-in encryption and authenticity:** mTLS secures all communication at the transport layer.
-* **Protocol-agnostic:** Works transparently for HTTP, gRPC, or other protocols without changes to application logic.
-
-#### Cons
-
-* **Operational complexity:** Certificate issuance, rotation, and revocation require automation and infrastructure (e.g., mesh, PKI, SPIRE).
-* **Limited application-level context:** Certificates provide service-level identity but lack granular attributes (e.g., purpose, scopes, tenancy) for fine-grained authorization, auditing, or delegation, requiring additional application-layer mechanisms.
-
-### Token Based Authentication
-
-In this pattern, the calling service (caller) authenticates itself by attaching a token to each request to another microservice (callee). The token is issued by a special security token service after the service authenticates using its credentials (e.g., service ID and a secret). Upon reception of the token, the collee can verify it (online or offline), extract the caller’s identity and further attributes and use the information for further processing or the request.
-
-#### Pros
-
-* **Rich application-level context:** Tokens can carry detailed attributes (e.g., roles, tenancy, permissions), enabling fine-grained authorization and business logic at the application layer, as well as tracking of business-level actors or intents, facilitating compliance and delegated authorization.
-* **Flexible integration:** Tokens can be attached to various protocols (e.g., HTTP headers, gRPC metadata), supporting diverse service architectures.
-
-#### Cons
-
-* **Operational complexity:** Issuing, validating, and revoking tokens requires careful coordination and infrastructure to ensure security and scalability.
-* **Issuer scalability and reliability:** The token service must be highly available and performant to avoid bottlenecks or single points of failure.
-* **Dependency on transport-layer security:** Token-based authentication requires TLS to protect token confidentiality and prevent replay attacks.
 

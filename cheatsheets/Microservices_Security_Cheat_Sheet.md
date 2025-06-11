@@ -162,7 +162,7 @@ This approach consolidates authentication logic into a single enforcement point,
 * **Improved consistency:** Authentication is performed consistently and uniform across services at a single entry point, reducing fragmentation, configuration drift, and improving auditability.
 * **Simplified service logic:** Internal services are relieved from implementing authentication logic, focusing only on authorization and business functionality.
 * **Faster service onboarding:** New services can rely on existing infrastructure for authentication, requiring minimal additional setup.
-* **Protocol-agnostic identity propagation:** Verified identity information can be propagated to internal services using trusted, implementation-independent formats (e.g., via a newly issued JWT, injected headers carrying identity information in plain form or protected using standards like HTTP Message Signatures), avoiding the need to handle raw external authentication data.
+* **[Protocol-agnostic identity propagation](#protocol-agnostic-identity-propagation):** Verified identity information can be propagated to internal services using trusted, implementation-independent formats (e.g., via a newly issued [JWT](https://www.rfc-editor.org/rfc/rfc7519), injected headers carrying identity information in protected form using standards like [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html)), or signed proprietary structures, avoiding the need to handle raw external authentication data.
 
 #### Cons
 
@@ -247,11 +247,11 @@ The actual validation of the tokens, represented by the dotted lines in steps 3 
 * **Latency overhead:** The token exchange process introduces additional network round-trips per request flow unless aggressively optimized.
 * **Operational dependency on the AS:** Introduces runtime dependency on the authorization server's availability and scalability.
 
-### Edge-Level Based Identity Propagation
+### Protocol-Agnostic Identity Propagation
 
 The external request is authenticated at the system edge by a trusted component, which then generates a cryptographically signed (and/or encrypted) data structure representing the external entity’s identity and attributes (e.g., user ID, roles, permissions). This identity structure is propagated downstream to internal microservices. Internal services trust the signature from the edge issuer and use the identity structure to make access control decisions.
 
-![Edge-Level Based Identity Propagation](../assets/Edge_Level_Based_Identity_Propagation.svg)
+![Protocol-Agnostic Identity Propagation](../assets/Protocol_Agnostic_Identity_Propagation.svg)
 
 Unlike in previous patterns, only the edge component is responsible for verifying externally provided authentication data with the identity provider that issued it. The specific verification process depends on the type and format of the authentication data, denoted by the dotted line in step 2. Further downstream, the microservices validate the signed identity structure issued by the trusted edge component. This object is typically a self-descriptive structure, such as a JWT, HTTP Message Signature, or a proprietary signed format. If so, each microservice must have access to the corresponding verification key to validate the authenticity of this token. The corresponding verification steps are denoted by the dotted lines in steps 5 and 7.
 

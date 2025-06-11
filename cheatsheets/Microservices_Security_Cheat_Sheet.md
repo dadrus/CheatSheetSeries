@@ -86,6 +86,8 @@ Authentication can be handled at different layers of a system’s architecture. 
 
 In this pattern, each service is responsible for handling authentication internally. This includes managing user identities and credentials, performing credential validation, and implementing login workflows. Common authentication methods used in this setup include username/password, API keys, and mutual TLS. All authentication logic and user data storage are embedded directly within the service, often through custom code or built-in libraries.
 
+![Service-Level Embedded Authentication](../assets/Service_Level_Embedded_Authentication.svg)
+
 #### Pros
 
 * **Team autonomy:** Each service is fully self-contained and does not rely on external systems for authentication.
@@ -106,6 +108,8 @@ In this pattern, each service is responsible for handling authentication interna
 
 This pattern addresses key limitations of Embedded Authentication, such as fragmented identity management, duplicated credential stores, and lack of support for SSO. In this pattern, the service no longer verifies credentials directly. Instead, an external Identity Provider (IdP) is responsible for authenticating users and issuing tokens or assertions. The service verifies these tokens internally using protocol libraries, such as those for OIDC, SAML, or CAS, and extracts identity attributes for request processing.
 
+![Service-Level Code-Mediated Authentication](../assets/Service_Level_Code_Mediated_Authentication.svg)
+
 #### Pros
 
 * **SSO support:** Identity and credential lifecycle is consolidated in the IdP, enabling Single Sign-On and reducing duplication.
@@ -124,6 +128,8 @@ This pattern addresses key limitations of Embedded Authentication, such as fragm
 ### Service-Level Proxy-Mediated Authentication
 
 This pattern builds on the Code-Mediated approach but further reduces complexity within services by moving authentication-related logic into a dedicated proxy deployed as a sidecar alongside the service. The proxy operates in front of the application, forwards requests locally to it, performs token or assertion validation with the Identity Provider (IdP), and injects identity context, typically through headers, into requests before forwarding them to the service.
+
+![Service-Level Proxy-Mediated Authentication](../assets/Service_Level_Proxy_Mediated_Authentication.svg)
 
 #### Pros
 
@@ -146,6 +152,8 @@ This pattern builds on the Code-Mediated approach but further reduces complexity
 ### Edge-Level Authentication
 
 In this pattern, authentication is handled at the system boundary by a shared component such as an API gateway or ingress proxy. This component authenticates incoming requests from external clients before they reach internal services. It integrates with one or multiple Identity Providers (IdPs) using protocols such as OIDC, OAuth2, SAML, or mTLS, and propagates verified identity information, typically via headers, to downstream services for further processing.
+
+![Edge-Level Authentication](../assets/Edge_Level_Authentication.svg)
 
 This approach consolidates authentication logic into a single enforcement point, simplifies service implementation by removing per-service authentication handling, and is particularly common in Zero Trust architectures.
 
@@ -175,6 +183,8 @@ The following sections describe a spectrum of identity propagation patterns, ran
 
 In this pattern, the edge component forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) directly to internal services without transformation. The internal services are responsible for extracting the identity context (such as user ID, roles, or scopes) from this data and making access control decisions based on it. When an internal service needs to communicate with another service, it just forwards the authentication data further downstream.
 
+![External Identity Propagation](../assets/External_Identity_Propagation.svg)
+
 #### Pros
 
 * **Minimal edge logic required:** The edge mainly forwards the authentication data, reducing its complexity. It may also just verify the validity of the authentication data.
@@ -191,6 +201,8 @@ In this pattern, the edge component forwards the externally received authenticat
 ### Simple Service-Level Identity Forwarding
 
 This pattern builds on the previous one but introduces a lightweight form of internal identity abstraction. While the edge component still forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) to internal services, each microservice no longer forwards this data unchanged. Instead, a microservice extracts the relevant identity information (e.g., user ID, roles, scopes) from the incoming request and creates a simplified representation of the identity—such as a plain JSON object, a self-signed JWT, or even a single value embedded in a query or path parameter—when making calls to downstream services.
+
+![Simple Service-Level Identity Forwarding](../assets/Simple_Service_Level_Identity_Forwarding.svg)
 
 This internal identity representation is not strongly cryptographically protected and often relies on implicit trust between services. As a result, downstream services must trust the integrity and correctness of the identity information forwarded by their upstream callers.
 
@@ -212,6 +224,8 @@ This internal identity representation is not strongly cryptographically protecte
 
 This pattern builds upon the previous pattern by introducing a trusted intermediary, an authorization server, through use of the OAuth2 Token Exchange protocol. A microservice that receives a request containing externally issued identity (e.g., an access token) exchanges it for a new, signed access token issued by the authorization server. This exchanged token is specifically scoped for a downstream internal service and is then propagated as part of the internal call.
 
+![Token Exchange-Based Identity Issuance](../assets/Token_Exchange_Based_Identity_Issuance.svg)
+
 Downstream services trust the token issued by the authorization server rather than the calling service. The pattern improves the trust model and strengthens identity guarantees, but is tightly coupled to the OAuth2 protocol family and its associated token types.
 
 #### Pros
@@ -230,6 +244,8 @@ Downstream services trust the token issued by the authorization server rather th
 ### Edge-Level Based Identity Propagation
 
 The external request is authenticated at the system edge by a trusted component, which then generates a cryptographically signed (and/or encrypted) data structure representing the external entity’s identity and attributes (e.g., user ID, roles, permissions). This identity structure is propagated downstream to internal microservices. Internal services trust the signature from the edge issuer and use the identity structure to make access control decisions.
+
+![Edge-Level Based Identity Propagation](../assets/Edge_Level_Based_Identity_Propagation.svg)
 
 #### Pros
 

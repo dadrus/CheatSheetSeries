@@ -465,3 +465,74 @@ Instead of embedding rigid policy logic or centralizing control in infrastructur
 * **Operational complexity:** While contracts empower teams with autonomy, effective governance requires clear guidelines and automated validation tools to prevent misconfiguration or misuse.
 * **Dependency sprawl:** Accessing external PIPs or custom APIs adds more components to the system. Without careful management through standardized logging and robust tooling, this can lead to delays or inconsistent visibility.
 
+## Selecting Authorization Patterns
+
+The discussion of [Authorization Patterns](#authorization-patterns) might suggest [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided entirely due to its drawbacks, such as scattered logic and limited auditability. However, this is not universally true. The suitability of any pattern depends on the data and policy dimensions of the system. Understanding these dimensions helps to select the approach that best balances security, maintainability, and performance.
+
+### Data Dimensions and Pattern Implications
+
+Two key dimensions characterize data: locality and cardinality. These help identify the most suitable pattern for decision-making.
+
+**Locality**
+
+* **Microservice-Local Data:** Only relevant within a single microservice, not reused outside. For example, a user’s sorting preference for a list view, per-service feature toggles, or rate-limiting counters maintained per client in a specific service.
+* **Domain-Level Data:** Data shared across multiple services within the same bounded context or domain. Examples include ownership metadata of documents in a document management domain, customer account status (e.g., frozen, active, under review) used by both billing and support services, or time-based availability windows for booking or scheduling services.
+* **Organization-Level Data:** Relevant across domains or the entire system, such as regulatory classification of data (e.g., “EU personal data”), tenant-level subscription tier or plan.
+
+**Cardinality**
+
+* **High Cardinality Data:** Data that is highly specific to individual requests or users and tends to change frequently, like a real-time risk score computed per authentication attempt or the time of the last successful MFA challenge.
+* **Medium Cardinality Data:** Data that applies to a set of users or resources and has moderate variability, like project identifiers tied to multiple resources
+* **Low Cardinality Data:** Data with few distinct values, often static or organizationally defined. For example, environment labels (e.g., “production”, “staging”), or business unit identifiers (e.g., “HR”, “Finance”, “R&D”).
+
+A mapping of these two dimensions yields the most appropriate authorization patterns:
+
+* For **Microservice-Local Data**, Decentralized Service-Level Access Control is a natural fit despite the cardinality, as most of its drawbacks (like auditability) don’t apply in such isolated scopes.
+* For **Domain-Level Data** and **Organization-Level Data** with medium or low cardinality, Centralized Access Control using an embedded or external PDP, or modern edge-level authorization, is typically the best fit.
+* The remaining two combinations - **Domain-Level Data** and **Organization-Level Data** with high cardinality - present different challenges, as memory or storage limits of a PDP would quickly become a problem. Instead, this data should be fetched or computed at request time and made available to the PDP dynamically. In centralized models with an embedded or external PDP, the calling microservice must gather data from relevant PIPs and include it in the request to the PDP. In edge-level authorization models, this enrichment can occur at the edge layer itself.
+
+### Data Distribution Considerations
+
+Authorization systems using embedded or external PDPs face common challenges: how to distribute relevant data and policies. Here we focus on data distribution, with policy distribution discussed in the next section.
+
+There are two major approaches:
+
+* **Pull:** The PDP fetches data from Policy Information Points (PIPs) at evaluation time.
+* **Push:** Data is proactively sent to the PDP in advance.
+
+Both have trade-offs:
+
+* Pull ensures freshness but can increase latency and complicate retries/failure handling.
+* Push improves performance and resilience but requires invalidation and sync strategies.
+
+### Policy Dimensions and Their Distribution
+
+Whereas [Data Dimensions and Pattern Implications](#data-dimensions-and-pattern-implications) guide the authorization pattern selection and data handling, policy dimensions shape how policies are authored, reviewed, and deployed.
+
+**Ownership**
+
+This dimension identifies who owns and maintains a policy, and often correlates with how composable or layered the policy needs to be.
+
+* **Microservice Team:** Policies authored and maintained by the team responsible for a specific microservice. These are typically focused on local enforcement logic and closely tied to internal service semantics. For example, a recommendation service defines request filters that exclude certain products based on internal scoring thresholds or active experiments.
+* **Domain Level:** Policies shared across services within a business domain, often requiring coordination between teams. These policies may be abstracted and reused across multiple services, like a subscription domain enforces business rules about grace periods, usage limits, or billing thresholds that are referenced by billing, customer portal, and notification services.
+* **Central (Organization Level):** Policies governed by a central security, compliance, or platform team. These typically apply across domains or services and provide the foundation upon which more granular policies are built, like an organizational policy that defines acceptable data residency constraints or standard access conditions for administrative APIs.
+
+
+**Change Rate**
+
+This dimension describes how frequently a policy is expected to change, which has implications for where and how policies should be reviewed, deployed, and versioned.
+
+* **Days/Weeks:** Frequently changing policies require agile authoring processes, often close to the domain or service teams who can iterate quickly. E.g. a marketing service adjusts eligibility criteria for promotional offers on a weekly basis, based on campaign feedback.
+
+* **Months/Years:** Long-lived policies are typically more stable and subject to formal review or audit procedures. These often reside at the domain or central level, like data access policies driven by GDPR or internal compliance frameworks, which are updated annually following policy reviews or legal consultation.
+
+
+## Authentication and Authorization Integration
+
+TODO: address the interplay between authentication and authorization patterns, explaining how authentication mechanisms (e.g., edge-level vs. service-level) influence authorization choices and vice versa
+
+## Common Pitfalls and Best Practices
+
+TODO: guidance on avoiding common mistakes (e.g., "accept by default" behaviors, misconfigured proxies) and implementing best practices for secure authentication and authorization
+
+

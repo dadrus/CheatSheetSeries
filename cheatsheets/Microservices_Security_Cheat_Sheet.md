@@ -253,7 +253,7 @@ The external request is authenticated at the system edge by a trusted component,
 
 ![Protocol-Agnostic Identity Propagation](../assets/Protocol_Agnostic_Identity_Propagation.svg)
 
-Unlike in previous patterns, only the edge component is responsible for verifying externally provided authentication data with the identity provider that issued it. The specific verification process depends on the type and format of the authentication data, denoted by the dotted line in step 2. Further downstream, the microservices validate the signed identity structure issued by the trusted edge component. This object is typically a self-descriptive structure, such as a JWT, HTTP Message Signature, or a proprietary signed format. If so, each microservice must have access to the corresponding verification key to validate the authenticity of this token. The corresponding verification steps are denoted by the dotted lines in steps 5 and 7.
+Unlike in previous patterns, only the edge component is responsible for verifying externally provided authentication data with the identity provider that issued it. The specific verification process depends on the type and format of the authentication data, denoted by the dotted line in step 2. Further downstream, the microservices validate the signed identity structure issued by the trusted edge component. This object is typically a self-descriptive structure, such as a JWT, or a proprietary signed format. If so, each microservice must have access to the corresponding verification key to validate the authenticity of this token. The corresponding verification steps are denoted by the dotted lines in steps 5 and 7.
 
 #### Pros
 
@@ -467,11 +467,61 @@ Instead of embedding rigid policy logic or centralizing control in infrastructur
 
 ## Selecting Authorization Patterns
 
-The discussion of [Authorization Patterns](#authorization-patterns) might suggest [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided entirely due to its drawbacks, such as scattered logic and limited auditability. However, this is not universally true. The suitability of any pattern depends on the data and policy dimensions of the system. Understanding these dimensions helps to select the approach that best balances security, maintainability, and performance.
+The discussion of [Authorization Patterns](#authorization-patterns) might suggest that [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided due to drawbacks like scattered logic and limited auditability. However, this is not universally true. The suitability of an authorization pattern depends on the system’s data dimensions. This section provides a framework for selecting patterns that balance security, maintainability, and performance by analyzing data characteristics and distribution strategies.
 
-### Data Dimensions and Pattern Implications
+### Data Distribution Strategies
 
-Two key dimensions characterize data: locality and cardinality. These help identify the most suitable pattern for decision-making.
+As can be seen from the discussion of the [Authorization Patterns](#authorization-patterns), approaches based on embedded or external PDPs face the following common challenges: how to distribute relevant data and policies to the PDP. This subsection outlines three primary strategies for distributing data to PDPs, each having distinct trade-offs, and their suitability depends on the specific PDP type (e.g., PBAC, ReBAC, or NGAC), the system’s requirements for performance, scalability, and data freshness.
+
+#### On-Demand Data Fetch
+
+The PDP fetches data from PIPs at the time of policy evaluation, typically via APIs or database queries. This approach is also known as "pull" approach.
+
+**Pros**
+
+* Ensures data freshness by retrieving the latest attributes from PIPs at evaluation time.
+* Simplifies data management, as the PDP does not need to maintain a local copy of data or handle synchronization.
+* Since the PDP does not need to maintain a local copy of data, the memory or storage demand of the PDP is low.
+
+**Cons**
+
+* Increases latency due to network calls to PIPs during evaluation, which can impact performance, especially for high-throughput systems.
+* Complicates retry and failure handling, as the PDP must manage timeouts, errors, or unavailable PIPs, potentially leading to degraded service or fallback decisions.
+* Introduces dependencies on external systems, reducing resilience if PIPs are slow or unavailable.
+
+#### Pre-Loaded Data
+
+Data is proactively sent to the PDP in advance, and stored in memory or a local data store for faster access during evaluation. This approach is also known as "push" approach.
+
+**Pros**
+
+* Improves performance by storing data locally (e.g., in cache or a local database), enabling faster policy evaluation without network overhead.
+* Enhances resilience, as the PDP can operate independently of PIP availability
+
+**Cons**
+
+* Requires robust invalidation and synchronization strategies to ensure data remains consistent with source systems, especially for frequently updated data.
+* Increases memory or storage demands on the PDP, which can be problematic for high-cardinality data or large datasets.
+* Adds complexity to data pipelines, as mechanisms must be built to push updates to the PDP in real-time or near-real-time.
+
+#### Request-Time Data Injection
+
+Required data is included in the "decision" request sent to the PDP by the PEP. This approach is also known as inline data passing.
+
+**Pros**
+
+* Enables handling of high-cardinality or dynamic data without preloading large datasets into the PDP, reducing memory or storage requirements.
+* Ensures data freshness, as the PEP provides the exact attributes needed for the specific request context.
+
+**Cons**
+
+* Increases request size, as additional data is included in the decision request, potentially impacting network performance.
+* Places the burden on the PEP (e.g., microservice or edge component) to collect and validate data from PIPs, increasing complexity in the calling component.
+* Risks inconsistent data if the PEP fails to provide all required attributes or if data collection is misconfigured, potentially leading to incorrect decisions.
+
+### Data Characteristics
+
+Selecting an authorization pattern requires understanding the properties of the data used for access decisions. This subsection defines two key dimensions, locality and cardinality, that characterize data and guide the choice of pattern and the data distribution strategy.
 
 **Locality**
 
@@ -485,25 +535,23 @@ Two key dimensions characterize data: locality and cardinality. These help ident
 * **Medium Cardinality Data:** Data that applies to a set of users or resources and has moderate variability, like project identifiers tied to multiple resources
 * **Low Cardinality Data:** Data with few distinct values, often static or organizationally defined. For example, environment labels (e.g., “production”, “staging”), or business unit identifiers (e.g., “HR”, “Finance”, “R&D”).
 
-A mapping of these two dimensions yields the most appropriate authorization patterns:
+### Pattern Selection and Data Distribution Mapping
 
-* For **Microservice-Local Data**, Decentralized Service-Level Access Control is a natural fit despite the cardinality, as most of its drawbacks (like auditability) don’t apply in such isolated scopes.
-* For **Domain-Level Data** and **Organization-Level Data** with medium or low cardinality, Centralized Access Control using an embedded or external PDP, or modern edge-level authorization, is typically the best fit.
-* The remaining two combinations - **Domain-Level Data** and **Organization-Level Data** with high cardinality - present different challenges, as memory or storage limits of a PDP would quickly become a problem. Instead, this data should be fetched or computed at request time and made available to the PDP dynamically. In centralized models with an embedded or external PDP, the calling microservice must gather data from relevant PIPs and include it in the request to the PDP. In edge-level authorization models, this enrichment can occur at the edge layer itself.
+This subsection maps the locality and cardinality dimensions to recommended authorization patterns and data distribution strategies, providing a decision framework for microservice architectures. The mapping considers the trade-offs of each pattern and outlines the capabilities of PEPs and PDPs.
 
-### Data Distribution Considerations
+* **Microservice-Local Data**
+  * **Recommended Pattern:** Decentralized Service-Level Access Control or Centralized Service-Level Access Control with Embedded PDP. These patterns are ideal regardless of cardinality, as the data’s isolated scope mitigates drawbacks like auditability or scattered logic.
+  * **Data Distribution Strategy:** Request-time data injection is preferred, as the microservice (acting as the PEP) has direct access to local data and can include it in decision requests to the PDP.
+  * **Considerations:** Both recommended patterns offer simplicity and autonomy, while embedded PDPs provide governance without external dependencies in addition. Request-time injection keeps complexity low, as no external PIPs are involved.
+* **Domain-Level Data and Organization-Level Data with Medium or Low Cardinality**
+  * **Recommended Pattern:** Centralized Service-Level Access Control with Embedded or External PDP or Modern Edge-Level Authorization. These patterns ensure consistent enforcement and auditability across shared data scopes.
+  * **Data Distribution Strategy:** On-demand data fetch or preloaded data are suitable. On-demand data fetch ensures freshness for moderately dynamic data, while preloaded data optimizes performance for static or low-cardinality data by storing it locally in the PDP.
+  * **Considerations:** Embedded PDPs reduce latency, while external PDPs, such as those implementing ReBAC approaches, support advanced capabilities, such as before-the-fact-audit. Pre-Loaded data requires synchronization pipelines, and on-demand fetch needs robust PIP availability handling.
+* **Domain-Level Data and Organization-Level Data with High Cardinality**
+  * **Recommended Pattern:** Centralized Service-Level Access Control with Embedded or External PDP or Modern Edge-Level Authorization. These patterns handle complex, shared data while supporting dynamic attribute inclusion.
+  * **Data Distribution Strategy:** Request-time data injection is essential, as high-cardinality data (e.g., per-user risk scores) cannot be fully preloaded due to PDP memory or storage limits. The PEP collects attributes from PIPs and includes them in the decision request.
+  * **Considerations:** In centralized models, microservices (as PEPs) handle PIP integration, increasing complexity. In edge-level models, the edge layer manages data enrichment, simplifying microservices but requiring robust edge configuration. Request-time injection ensures scalability but demands reliable PEP data collection.
 
-Authorization systems using embedded or external PDPs face common challenges: how to distribute relevant data and policies. Here we focus on data distribution, with policy distribution discussed in the next section.
-
-There are two major approaches:
-
-* **Pull:** The PDP fetches data from Policy Information Points (PIPs) at evaluation time.
-* **Push:** Data is proactively sent to the PDP in advance.
-
-Both have trade-offs:
-
-* Pull ensures freshness but can increase latency and complicate retries/failure handling.
-* Push improves performance and resilience but requires invalidation and sync strategies.
 
 ### Policy Dimensions and Their Distribution
 

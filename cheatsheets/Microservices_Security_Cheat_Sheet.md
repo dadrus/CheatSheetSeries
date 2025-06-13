@@ -50,7 +50,7 @@ To perform this evaluation, the PDP often needs more information than what’s i
 
 This is where the **Policy Information Point (PIP)** comes in. The PIP retrieves additional attributes from user directories, databases, metadata services, etc., and supplies them to the PDP as needed.
 
-But here’s where a crucial detail often gets missed: the PDP doesn't always answer a **closed question** like “yes” or “no”. In many cases, the PDP may answer **open questions**, like:
+But here’s where a crucial detail often gets missed: the PDP doesn't always answer a **closed question** like “yes” or “no”. In many cases, the PDP may answer **open questions** with answers like:
 
 * Alice can read the article, but only the excerpt.
 * Alice can read the full article if her subscription is Premium or if the article is marked as public.
@@ -168,6 +168,7 @@ This approach consolidates authentication logic into a single enforcement point,
 
 * **Limited granularity:** Fine-grained or per-endpoint authentication policies (e.g., step-up authentication) are generally harder to implement and may require additional coordination with downstream services. This heavily depends on the capabilities of the edge proxy
 * **Identity propagation challenges:** Ensuring secure and reliable propagation of identity context (e.g., via headers) requires strict validation and trust models between the edge and internal services. Proper governance can help overcome this limitation.
+* **Single Point of Failure:** ...
 
 ## Identity Propagation Patterns
 
@@ -292,7 +293,7 @@ In this pattern, services authenticate one another at the transport layer using 
 
 ### Token Based Authentication
 
-In this pattern, the calling service (caller) authenticates itself by attaching a token to each request to another microservice (callee). The token is issued by a special security token service after the service authenticates using its credentials (e.g., service ID and a secret). Upon reception of the token, the collee can verify it (online or offline), extract the caller’s identity and further attributes and use the information for further processing or the request.
+In this pattern, the calling service (caller) authenticates itself by attaching a token to each request to another microservice (callee). The token is issued by a special security token service after the service authenticates using its credentials (e.g., service ID and a secret). Upon reception of the token, the callee can verify it (online or offline), extract the caller’s identity and further attributes and use the information for further processing or the request.
 
 #### Pros
 
@@ -502,7 +503,7 @@ Policies are proactively sent to the PDP and stored locally for evaluation, ofte
 
 * Required policy changes can be applied to a PDP without compromising availability
 
-Cons:
+**Cons:**
 
 * Requires robust synchronization to keep policies consistent with the repository.
 * Adds complexity to distribution pipelines for real-time or near-real-time updates.

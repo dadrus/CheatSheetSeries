@@ -467,9 +467,11 @@ Instead of embedding rigid policy logic or centralizing control in infrastructur
 
 ## Selecting Authorization Patterns
 
-The discussion of [Authorization Patterns](#authorization-patterns) might suggest that [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided due to drawbacks like scattered logic and limited auditability. However, this is not universally true. The suitability of an authorization pattern depends on the system’s data dimensions. This section provides a framework for selecting patterns that balance security, maintainability, and performance by analyzing data characteristics and distribution strategies.
+The discussion of [Authorization Patterns](#authorization-patterns) might suggest that [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided due to drawbacks like scattered logic and limited auditability. However, this is not universally true. The suitability of an authorization pattern depends primarily on the system’s data dimensions, with policy management considerations playing a supporting role. This section provides a framework for selecting patterns that balance security, maintainability, and performance by analyzing data characteristics and distribution strategies, complemented by policy characteristics and distribution approaches. While data characteristics and data distribution strategies drive pattern selection, understanding policy characteristics and distribution ensures policies are authored, maintained, and delivered to PDPs efficiently.
 
 ### Policy Characteristics
+
+Policy characteristics define how policies are authored, maintained, and updated, influencing their management and distribution. Two key dimensions, ownership and change rate, guide these processes, which are critical for operationalizing authorization systems.
 
 **Ownership**
 
@@ -484,11 +486,43 @@ This dimension identifies who owns and maintains a policy, and often correlates 
 
 This dimension describes how frequently a policy is expected to change, which has implications for where and how policies should be reviewed, deployed, and versioned.
 
-* **Days/Weeks:** Frequently changing policies require agile authoring processes, often close to the domain or service teams who can iterate quickly. E.g. a marketing service adjusts eligibility criteria for promotional offers on a weekly basis, based on campaign feedback.
-
-* **Months/Years:** Long-lived policies are typically more stable and subject to formal review or audit procedures. These often reside at the domain or central level, like data access policies driven by GDPR or internal compliance frameworks, which are updated annually following policy reviews or legal consultation.
+* **High:** Frequently changing policies (days to weeks) requiring agile authoring processes, often at the microservice or domain level. Example: A marketing service adjusts promotional offer criteria weekly based on campaign feedback.
+* **Medium:** Policies changing monthly or quarterly, typically at the microservice or domain level. Example: A billing service updates discount policies each quarter based on market trends.
+* **Low:** Stable policies with formal review, typically at the domain or central level. Example: GDPR-driven data access policies updated annually or less frequently.
 
 ### Policy Distribution Strategies
+
+Distributing policies to PDPs ensures they are available for evaluation in microservice architectures. This subsection outlines two primary strategies, pre-loaded policies and embedded policies, each with trade-offs affecting performance, scalability, and policy freshness. The choice mainly depends on the Policy Characteristics.
+
+#### Pre-Loaded Policies
+
+Policies are proactively sent to the PDP and stored locally for evaluation, often alongside pre-loaded data, as described in Pre-Loaded Data.
+
+**Pros:**
+
+* Required policy changes can be applied to a PDP without compromising availability
+
+Cons:
+
+* Requires robust synchronization to keep policies consistent with the repository.
+* Adds complexity to distribution pipelines for real-time or near-real-time updates.
+
+See the Pre-Loaded Data diagrams for embedded and external PDP setups, which include policy distribution via components like the Distributor, Aggregator, Policy Aggregator, and Data Aggregator. These components manage policy loading and updates alongside data, ensuring PDPs are configured with the latest policies.
+
+
+#### Embedded Policies
+
+Policies are embedded in the PDP’s static configuration and cannot be updated without restarting or redeploying the PDP. This strategy is ideal for Low change rate policies.
+
+**Pros:**
+
+* Simplifies policy management, as policies are bundled with the PDP.
+* Reduces operational complexity.
+
+**Cons:**
+
+* Increases deployment overhead, as changes involve rebuilding or redeploying the PDP.
+* Limits scalability for needs with frequent policy adjustments.
 
 ### Data Characteristics
 

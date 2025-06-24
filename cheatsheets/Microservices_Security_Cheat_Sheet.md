@@ -16,8 +16,10 @@ To lay the foundation for the patterns described in this cheat sheet, this secti
 
 These functional components are:
 
-* **Policy Administration Point (PAP):** Manages policies—offering tools for writing, testing, and updating access control logic.
-* **Policy Decision Point (PDP):** Evaluates policies and computes decisions about access based on the incoming request and relevant attributes.
+* **Subject:** An active entity that attempts to perform an action on an Object.
+* **Object:** A passive entity that is the target of an action attempted by the Subject.
+* **Policy Administration Point (PAP):** Manages access control policies by providing tools for authoring, testing, and maintaining them.
+* **Policy Decision Point (PDP):** Evaluates policies and computes authorization decisions based on the access request and relevant attributes.
 * **Policy Enforcement Point (PEP):** Intercepts requests and enforces the access decision provided by the PDP.
 * **Policy Information Point (PIP):** Supplies attribute data or contextual information that the PDP requires to evaluate a policy.
 
@@ -57,24 +59,26 @@ But here’s where a crucial detail often gets missed: the PDP doesn't always an
 * Alice can read up to three full articles per day on a free plan.
 * Alice can read that set of articles
 
-In these cases, the PDP returns not just a binary decision, but a decision along with **obligations, conditions, or structured attributes** that describe *how* access is permitted - such as what parts of a resource are visible, or what usage limits apply.
+In these cases, the PDP returns not just a binary decision, but a decision along with **obligations, conditions, or structured attributes** that describe *how* access is permitted, such as what parts of a resource are visible, or what usage limits apply.
 
-The PEP then takes that decision and enforces it - meaning the request is either allowed to proceed to the protected resource or is blocked. Enforcement is binary: permit or deny. If the decision includes additional data, it is up to downstream components, such as business logic or resource handlers to interpret and apply those, for example, by shaping the response or limiting available actions.
+The PEP then takes that decision and enforces it, meaning the request is either allowed to proceed to the protected resource or is blocked. Enforcement is binary: permit or deny. If the decision includes additional data, it is up to downstream components, such as business logic or resource handlers to interpret and apply those, for example, by shaping the response or limiting available actions.
 
 However, there is one essential prerequisite: the system must know who the subject is, that is, it must verify that Alice is indeed Alice. This is the domain of authentication. Without it, the PEP has no basis on which to enforce access decisions. Authentication is therefore foundational, which is why we begin by examining authentication patterns and approaches.
 
-### First-Party vs. Third-Party Authorization
+### First-Party vs. Third-Party
 
-When it comes to authentication and authorization, we have to differentiate between first-party and third-party contexts:
+Before we look closer at authentication patterns, there's a crucial differentiation one has to be aware of: Is the context we're in a First-Party, or a Third-Party context:
 
-* **First Party:** When the subject (given the story above - Alice) wants to access specific objects (like the article). The subject may own the object (like if the article was previously written by Alice), but doesn't need to (like when Alice wants to access an article written and published by somebody else).
-* **Third Party:** When a subject wants to act on behalf of another entity and access objects belonging to that entity. Given the example from above, imagine there is another service that implements capabilities to check grammar and wording and provide suggestions for better reading flow to article authors; and our blog post service supports such integration by providing corresponding APIs. Here, Alice would delegate her rights - since she performs the decision on who is allowed to access her article, she takes the role of the PDP - to that third-party service. So, Alice is the PDP, the third-party service is the subject, the article is still the object, and the implementation of the API used by the third party plays the role of the PEP.
+* **First Party:** When the subject (given the story above - Alice) accesses objects (like the article) on their own behalf. The subject may own the object (e.g., Alice editing her own article) or not (e.g., Alice reading someone else's article).
+* **Third Party:** When a subject acts on behalf of another entity to access objects owned by that entity. For example, imagine a service integrated with the blog platform (from the example section) to check grammar and suggest improvements for articles. Alice delegates access to this third-party service, becoming the PDP. The third-party service acts as the subject, the article is still the object, and the blog API is the PEP enforcing access. 
 
 ![First Party vs Third Party](../assets/First_vs_Third_Party_Context.svg)
 
+Between these scenarios, there is also a special case within the first-party context, where a user explicitly authorizes a trusted internal service to act on their behalf. In this situation, the user acts both as the subject (requesting the action) and as the PDP by giving explicit consent. This typically occurs within trusted domains, where user approval initiates actions executed by internal services. For example, in a banking app, the user approves a transaction, while the banking system acts as the PEP. These interactions rely on existing authentication and authorization mechanisms and are enhanced by dedicated protocols to ensure integrity and non-repudiation. Additionally, other PDPs within the system may apply further controls, such as fraud detection, compliance verification, or transaction limits, before final enforcement.
+
 While exploring these contexts, it's important to understand that different protocols address different needs. Some protocols are tailored to the first-party context only, such as [Security Assertion Markup Language (SAML)](https://www.oasis-open.org/standard/saml/) or [Central Authentication Service (CAS)](https://apereo.github.io/cas/7.2.x/index.html), which are primarily designed for direct user authentication and carry attributes for authorization purposes within trusted domains. Others, like [Open Authorization (OAuth 2.0)](https://datatracker.ietf.org/doc/html/rfc6749), focus exclusively on the third-party context, enabling delegated access to resources on behalf of another party. And then there are protocols like [OpenID Connect (OIDC)](https://openid.net/specs/openid-connect-core-1_0.html) that support both contexts, combining identity information with delegated access.
 
-What all these protocols have in common is that they define mechanisms to authenticate the involved parties. However, the details of how this authentication is performed - e.g., through passwords, certificates, or multi-factor methods - are not covered in this cheat sheet. Likewise, the protocols themselves are not the focus here; there are excellent existing cheat sheets for that purpose (which we will reference). Instead, this document emphasizes patterns: how different approaches to authentication and authorization are architecturally applied, and what implications they carry.
+What all these protocols have in common is that they define mechanisms to authenticate the involved parties. However, the details of how this authentication is performed - e.g., through passwords, or by making use of other factors - are not covered in this cheat sheet. Likewise, the protocols themselves are not the focus here; there are excellent existing cheat sheets for that purpose (which we will reference). Instead, this document emphasizes patterns: how different approaches to authentication and authorization are architecturally applied, and what implications they carry.
 
 
 ## Client Authentication Patterns
@@ -155,7 +159,7 @@ In this pattern, authentication is handled at the system boundary by a shared co
 
 ![Edge-Level Authentication](../assets/Edge_Level_Authentication.svg)
 
-This approach consolidates authentication logic into a single enforcement point, simplifies service implementation by removing per-service authentication handling, and is particularly common in Zero Trust architectures.
+This approach consolidates authentication logic into a single enforcement point, simplifies service implementation by removing per-service authentication handling, and is particularly common in [Zero Trust](https://csrc.nist.gov/pubs/sp/800/207/final) architectures.
 
 #### Pros
 
@@ -168,7 +172,7 @@ This approach consolidates authentication logic into a single enforcement point,
 
 * **Limited granularity:** Fine-grained or per-endpoint authentication policies (e.g., step-up authentication) are generally harder to implement and may require additional coordination with downstream services. This heavily depends on the capabilities of the edge proxy
 * **Identity propagation challenges:** Ensuring secure and reliable propagation of identity context (e.g., via headers) requires strict validation and trust models between the edge and internal services. Proper governance can help overcome this limitation.
-* **Single Point of Failure:** ...
+* **Single Point of Failure:** While the ingress proxy or gateway is already a central component in most architectures, performing authentication at the edge makes it a critical part of the security infrastructure. Misconfiguration or compromise can impact not just access, but the integrity of authentication decisions system-wide.
 
 ## Identity Propagation Patterns
 
@@ -250,26 +254,26 @@ The actual validation of the tokens, represented by the dotted lines in steps 3 
 
 ### Protocol-Agnostic Identity Propagation
 
-The external request is authenticated at the system edge by a trusted component, which then generates a cryptographically signed (and/or encrypted) data structure representing the external entity’s identity and attributes (e.g., user ID, roles, permissions). This identity structure is propagated downstream to internal microservices. Internal services trust the signature from the edge issuer and use the identity structure to make access control decisions.
+The external request is authenticated at the system edge by a trusted component, which then generates a cryptographically signed (and/or encrypted) data structure representing the external entity’s identity and attributes (e.g., user ID, roles, permissions) - typically a self-contained, verifiable structure, such as a JWT or a proprietary signed format. This signed identity structure, hereafter referred to as a token, is propagated downstream to internal microservices. Internal services trust the signature from the edge issuer and use the token to make access control decisions.
 
 ![Protocol-Agnostic Identity Propagation](../assets/Protocol_Agnostic_Identity_Propagation.svg)
 
-Unlike in previous patterns, only the edge component is responsible for verifying externally provided authentication data with the identity provider that issued it. The specific verification process depends on the type and format of the authentication data, denoted by the dotted line in step 2. Further downstream, the microservices validate the signed identity structure issued by the trusted edge component. This object is typically a self-descriptive structure, such as a JWT, or a proprietary signed format. If so, each microservice must have access to the corresponding verification key to validate the authenticity of this token. The corresponding verification steps are denoted by the dotted lines in steps 5 and 7.
+Unlike in previous patterns, only the edge component is responsible for verifying externally provided authentication data with the identity provider that issued it. The specific verification process depends on the type and format of the authentication data, denoted by the dotted line in step 2. Further downstream, the microservices validate the signed token issued by the trusted edge component. Each microservice must have access to the corresponding verification key to validate the authenticity of this token. The corresponding verification steps are denoted by the dotted lines in steps 5 and 7.
 
 #### Pros
 
 * **Cryptographic trust:** Signed tokens provide strong guarantees about the integrity and authenticity of the propagated identity.
-* **Decoupling from external authentication data:** Internal services do not need to cope with protocols used at the edge or to validate externally used authentication data (such as access tokens or cookies) themselves, simplifying service logic.
+* **Decoupling from external authentication data and context:** Internal services neither handle external protocols nor need to differentiate whether requests originate from first- or third-party actors, simplifying their logic and trust assumptions.
 * **Rich identity context:** Allows inclusion of fine-grained identity and authorization metadata.
 * **Secure across trust boundaries:** Suitable for multi-tenant and zero-trust environments.
-* allows for decoupling of external entities from their internal representations, which highly enhances privacy.
+* **Separation of external and internal identities:** Enables mapping externally known identifiers to distinct internal representations, preventing direct exposure of internal identifiers and thereby enhancing privacy by reducing correlation and tracking risks across domains.
 
 #### Cons
 
 * **Key management complexity:** Requires secure handling and rotation of signing keys to maintain trust.
-* **Token size overhead:** Signed data structures issued by the edge component may be large, increasing network overhead.
-* **Revocation challenges:** Once issued, signed data structures may be valid for many services until expiration, complicating immediate revocation. That can however be mitigated by issuing short living signatures and by creating downstream service specific structures.
-* **Increased complexity at the edge:** The edge component must handle token signing and may become a critical security point.
+* **Token size overhead:** Signed tokens issued by the edge component may be large, increasing network overhead.
+* **Revocation challenges:** Once issued, tokens may be valid for many services until expiration, complicating immediate revocation. This can, however, be mitigated by issuing short-lived tokens and tailoring identity structures to individual downstream services.
+* **Increased complexity at the edge:** The edge component must handle external authentication data verification as well as internal token generation and signing, making it a critical security component.
 
 
 ## Microservice Authentication Patterns
@@ -291,9 +295,16 @@ In this pattern, services authenticate one another at the transport layer using 
 * **Operational complexity:** Certificate issuance, rotation, and revocation require automation and infrastructure (e.g., mesh, PKI, SPIRE).
 * **Limited application-level context:** Certificates provide service-level identity but lack granular attributes (e.g., purpose, scopes, tenancy) for fine-grained authorization, auditing, or delegation, requiring additional application-layer mechanisms.
 
-### Token Based Authentication
+### Token-Based Authentication
 
-In this pattern, the calling service (caller) authenticates itself by attaching a token to each request to another microservice (callee). The token is issued by a special security token service after the service authenticates using its credentials (e.g., service ID and a secret). Upon reception of the token, the callee can verify it (online or offline), extract the caller’s identity and further attributes and use the information for further processing or the request.
+In this pattern, the calling service (caller) authenticates itself by attaching a token to each request to another microservice (callee). The token is issued by a trusted token issuer after the service authenticates using its credentials. Upon receiving the token, the callee verifies it, extracts the caller’s identity and any additional attributes, and uses this information for processing or access control decisions.
+
+Tokens may come in different forms:
+
+* **Self-contained tokens** (such as JWTs) embed identity attributes directly, allowing the callee to verify and extract data without further calls.
+* **Opaque tokens** carry a reference which requires online introspection to retrieve the associated identity attributes from the issuer.
+
+This pattern can be implemented using various technologies. A common example is the [OAuth 2.0 Client Credentials Grant](https://www.rfc-editor.org/rfc/rfc6749#section-4.4) flow, often used to issue and manage tokens in service-to-service scenarios. However, it is not the only option. Simpler alternatives, such as API keys, may also be suitable depending on the trust model, environment, and specific requirements for token format, validation, and lifecycle management.
 
 #### Pros
 
@@ -481,7 +492,6 @@ This dimension identifies who owns and maintains a policy, and often correlates 
 * **Microservice Team:** Policies authored and maintained by the team responsible for a specific microservice. These are typically focused on local enforcement logic and closely tied to internal service semantics. For example, a recommendation service defines request filters that exclude certain products based on internal scoring thresholds or active experiments.
 * **Domain Level:** Policies shared across services within a business domain, often requiring coordination between teams. These policies may be abstracted and reused across multiple services, like a subscription domain enforces business rules about grace periods, usage limits, or billing thresholds that are referenced by billing, customer portal, and notification services.
 * **Central (Organization Level):** Policies governed by a central security, compliance, or platform team. These typically apply across domains or services and provide the foundation upon which more granular policies are built, like an organizational policy that defines acceptable data residency constraints or standard access conditions for administrative APIs.
-
 
 **Change Rate**
 

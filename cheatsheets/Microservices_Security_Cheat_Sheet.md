@@ -63,7 +63,8 @@ In these cases, the PDP returns not just a binary decision, but a decision along
 
 The PEP then takes that decision and enforces it, meaning the request is either allowed to proceed to the protected resource or is blocked. Enforcement is binary: permit or deny. If the decision includes additional data, it is up to downstream components, such as business logic or resource handlers to interpret and apply those, for example, by shaping the response or limiting available actions.
 
-However, there is one essential prerequisite: the system must know who the subject is, that is, it must verify that Alice is indeed Alice. This is the domain of authentication. Without it, the PEP has no basis on which to enforce access decisions. Authentication is therefore foundational, which is why we begin by examining authentication patterns and approaches.
+However, there is one essential prerequisite: the system must know who the subject is — that is, it must verify the subject’s identity, confirming that Alice is indeed Alice. This verification process is the domain of authentication. Without it, the PEP has no basis on which to enforce access decisions. Authentication is therefore foundational, which is why we begin by examining authentication patterns and approaches.
+
 
 ### First-Party vs. Third-Party
 
@@ -80,37 +81,65 @@ While exploring these contexts, it's important to understand that different prot
 
 What all these protocols have in common is that they define mechanisms to authenticate the involved parties. However, the details of how this authentication is performed - e.g., through passwords, or by making use of other factors - are not covered in this cheat sheet. Likewise, the protocols themselves are not the focus here; there are excellent existing cheat sheets for that purpose (which we will reference). Instead, this document emphasizes patterns: how different approaches to authentication and authorization are architecturally applied, and what implications they carry.
 
+### On Subjects and Principals
 
-## Client Authentication Patterns
+Another important topic to understand before we explore authentication and authorization patterns is the concept of a **subject**. According to the reference architecture and the story above, a subject is an active entity that carries an identity and is the target of authentication.
 
-Authentication can be handled at different layers of a system’s architecture. Broadly speaking, we differentiate between Service-Level Authentication, where each service (or a component directly attached to it) is responsible for verifying identity, and Edge-Level Authentication, where authentication is handled by a shared component at the system boundary. Each approach comes with trade-offs in terms of scalability, consistency, and operational complexity.
+However, in most real-world systems, authentication is not limited to a single type of entity. Instead, there are often multiple forms of identity involved, each representing a different kind of actor or context:
+
+* **End-users:** Human users interacting with a system via a browser or mobile app.
+* **Devices:** The user’s device (e.g., smartphone, laptop, or IoT hardware), which may have its own identity.
+* **External clients:** Applications or scripts accessing an API on behalf of a user or system.
+* **Internal workloads:** Services or components within a distributed system communicating with each other.
+
+All of these are **principals** — identifiable entities that can be authenticated and authorized. A **subject**, in turn, may consist of one or more such principals. For example, a request from a mobile app may involve both the authenticated user and the device they’re using. In a service-to-service call, the subject might be the internal service identity, optionally carrying along delegated user context.
+
+Understanding subjects in this compositional way is key to interpreting the patterns described below. While many patterns focus on a single principal type (e.g., user or service), they often support **multi-principal subjects** through identity propagation and proper orchestration of authentication mechanisms.
+
+
+## Authentication Patterns
+
+Authentication can be handled at different layers of a system’s architecture. Broadly speaking, there are three main approaches: 
+
+* **Service-Level:** responsibility for verifying identity is delegated to each service, or to a proxy tightly coupled to it.
+* **Edge-Level:** authentication is centralized in a shared component at the system boundary.
+* **Kernel-Level:** authentication is performed in the operating system kernel, using cryptographic identities enforced at the transport layer.
+
+Each approach comes with trade-offs in terms of scalability, consistency, and operational complexity.
+
+Before diving into these patterns, it is important to clarify what is being verified. Most systems handle authentication in two phases:
+
+* **Primary Authentication:** This is the process of directly verifying credentials tied to authentication factors, such as passwords, biometric inputs, or signed challenges like WebAuthn assertions. This step proves control of an authentication factor — something the subject knows, has, or is — and importantly, it establishes the identity by linking the verified factor to a known identity record, such as a user account.
+* **Authentication Proof Verification:** After successful primary authentication, the system typically issues an authentication proof — a reusable artifact that confirms the authenticated identity in subsequent interactions. At the application layer, this might take the form of a session cookie, token, or assertion. At lower layers, it can take the form of cryptographic session state, such as a TLS session key or an IPsec Security Association. Verifying the proof ensures that the identity remains trusted without repeating primary authentication.
+
+Where this distinction is not relevant, the term **authentication data** is used to refer collectively to both primary credentials and authentication proofs. The following subsections use this term when referring to either or both phases.
+
+The patterns explained in the following subsections differ in **what** is verified (credentials in primary authentication vs. authentication proofs), **where** verification happens, and **which** implications this has for system design.
 
 
 ### Service-Level Embedded Authentication
 
-In this pattern, each service is responsible for handling authentication internally. This includes managing user identities and credentials, performing credential validation, and implementing login workflows. Common authentication methods used in this setup include username/password, API keys, and mutual TLS. All authentication logic and user data storage are embedded directly within the service, often through custom code or built-in libraries.
+In this pattern, each service is responsible for handling primary authentication internally. This includes managing identities and credentials, performing credential verification, and implementing authentication workflows. Common credential types used in this setup include username/password, API keys, and similar simple methods. All authentication logic and subject related data storage are embedded directly within the service, often through custom code or built-in libraries.
 
 ![Service-Level Embedded Authentication](../assets/Service_Level_Embedded_Authentication.svg)
 
 #### Pros
 
-* **Team autonomy:** Each service is fully self-contained and does not rely on external systems for authentication.
-* **Simplicity (for isolated systems):** No additional infrastructure is required to support authentication.
-* **Customization:** Authentication behavior can be adapted to service-specific requirements without external constraints.
+* **Simplicity:** Each service is fully self-contained and does not rely on external systems or additional infrastructure for authentication.
+* **Customization freedom:** Authentication behavior can be adapted to service-specific requirements without external constraints.
 
 #### Cons
 
-* **Inconsistency:** Authentication behavior, credential storage, and login flows differ across services, leading to fragmentation.
-* **Security risk:** Critical authentication logic is duplicated and harder to audit or secure consistently.
+* **Inconsistency:** Authentication behavior, credential storage, and authentication flows differ across services, leading to fragmentation and a poor user experience.
+* **Security risk:** Authentication code is duplicated across services, increasing the risk of vulnerabilities and complicating audits.
 * **Maintenance burden:** Changing authentication methods (e.g., introducing MFA) requires updates across all affected services.
-* **Redundant identity stores:** Each service must securely manage its own user database and credential lifecycle.
-* **Inconsistent user experience:** Fragmented authentication behavior and lack of SSO lead to inconsistent login flows and session handling across services.
-* **Authentication orchestration:** Supporting multiple authentication configurations, including chaining protocols and subject-specific variations, adds significant complexity.
-* **Authentication data exposure risk:** Using the same authentication data (e.g., tokens, cookies, assertions) for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed - due to misconfiguration or an attacker gaining internal access - the leaked authentication data may enable unauthorized access to sensitive resources.
+* **Limited scalability:** Each service is responsible for identity management, complicating secure identity management across a large system. This makes the pattern unsuitable for scalable service-to-service authentication.
+* **Authentication orchestration:** Supporting multiple authentication configurations, including protocol chaining and subject-specific variations, required to support different contexts, like first- and third-party, or external client and service-to-service authentication, adds significant complexity.
+* **Coupling of external authentication data with internal trust assumptions:** Using the same authentication data for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed because of a misconfiguration or an attacker gaining internal access, the leaked authentication data may enable unauthorized access to sensitive resources.
 
 ### Service-Level Code-Mediated Authentication
 
-This pattern addresses key limitations of Embedded Authentication, such as fragmented identity management, duplicated credential stores, and lack of support for SSO. In this pattern, the service no longer verifies credentials directly. Instead, an external Identity Provider (IdP) is responsible for authenticating users and issuing tokens or assertions. The service verifies these tokens internally using protocol libraries, such as those for OIDC, SAML, or CAS, and extracts identity attributes for request processing.
+This pattern addresses key limitations of the [Service-Level Embedded Authentication](#service-level-embedded-authentication), such as fragmented identity management, duplicated credential stores, and lack of support for SSO. In this pattern, the service no longer verifies credentials directly. Instead, an external Identity Provider (IdP) authenticates the subject and issues authentication proofs. The service verifies these internally and extracts identity attributes for request processing.
 
 ![Service-Level Code-Mediated Authentication](../assets/Service_Level_Code_Mediated_Authentication.svg)
 
@@ -120,18 +149,19 @@ This pattern addresses key limitations of Embedded Authentication, such as fragm
 * **Lower security risks:** Centralized authentication reduces the attack surface related to credential handling.
 * **Improved user experience:** Consistent authentication flows and session handling across services.
 * **Interoperability:** Widely adopted protocols like OIDC and SAML provide flexibility and broad integration possibilities with various IdPs.
-* **Support for proprietary IdP protocols:** Allows flexible integrations in environments where standards like OIDC are not applicable.
+* * **Customization freedom:** Services can still tailor authentication behavior to specific needs, for example, in environments where standards like OIDC are not applicable.
 
 #### Cons
 
-* **Protocol handling overhead:** Each service must implement and maintain complex logic for token/assertion verification and protocol-specific behavior.
-* **Misconfiguration risks:** Incorrect validation logic, such as missing expiration checks or improper cryptography use, can introduce security vulnerabilities.
-* **Authentication orchestration:** Supporting multiple authentication configurations, including chaining protocols and subject-specific variations, adds significant complexity.
-* **Authentication data exposure risk:** Using the same authentication data (e.g., tokens, cookies, assertions) for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed - due to misconfiguration or an attacker gaining internal access - the leaked authentication data may enable unauthorized access to sensitive resources.
+* **Protocol handling overhead:** Each service must implement and maintain logic for authentication proof verification and protocol-specific behavior.
+* **Misconfiguration risks:** Incorrect verification logic, such as missing expiration checks or improper cryptography use, can introduce sever security vulnerabilities.
+* **Authentication orchestration:** Supporting multiple authentication configurations, including protocol chaining and subject-specific variations, required to support different contexts, like first- and third-party, or external client and service-to-service authentication, adds significant complexity.
+* **Coupling of external authentication data with internal trust assumptions:** Using the same authentication data for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed because of a misconfiguration or an attacker gaining internal access, the leaked authentication data may enable unauthorized access to sensitive resources.
+
 
 ### Service-Level Proxy-Mediated Authentication
 
-This pattern builds on the Code-Mediated approach but further reduces complexity within services by moving authentication-related logic into a dedicated proxy deployed as a sidecar alongside the service. The proxy operates in front of the application, forwards requests locally to it, performs token or assertion validation with the Identity Provider (IdP), and injects identity context, typically through headers, into requests before forwarding them to the service.
+This pattern builds on the [previous pattern](#service-level-code-mediated-authentication) but further reduces complexity within services by offloading authentication-related logic to a dedicated proxy deployed as a sidecar alongside the service. The proxy operates in front of the application, forwards requests locally to it, performs verification of authentication proofs with the Identity Provider (IdP), and injects identity context, typically via headers, into requests before forwarding them to the service.
 
 ![Service-Level Proxy-Mediated Authentication](../assets/Service_Level_Proxy_Mediated_Authentication.svg)
 
@@ -141,21 +171,22 @@ This pattern builds on the Code-Mediated approach but further reduces complexity
 * **Lower security risks:** Centralized authentication reduces the attack surface related to credential handling.
 * **Improved user experience:** Consistent authentication flows and session handling across services.
 * **Interoperability:** Widely adopted protocols like OIDC and SAML provide flexibility and broad integration possibilities with various IdPs.
-* **Separation of concerns:** Removes authentication related logic from application code, simplifying service development and maintenance.
-* **Consistent behavior:** Identity validation and protocol handling in the proxy ensures uniform behavior across services.
-* **Improved security posture:** Reduces the risk of implementation flaws by consolidating authentication related logic into a dedicated, hardened component.
-* **Authentication orchestration:** Some proxies support multiple authentication configurations, such as chaining protocols and subject-specific variations.
+* **Separation of concerns:** Removes authentication-related logic from application code by offloading it to the proxy, simplifying service development and reducing maintenance effort.
+* **Consistent behavior:** Identity verification and protocol handling in the proxy ensure uniform behavior across services.
+* **Improved security posture:** Reduces the risk of implementation flaws by consolidating authentication-related logic into a dedicated, hardened component.
+* **Authentication orchestration:** Some proxies support multiple authentication configurations, including protocol chaining and subject-specific variations. This enables support for different contexts, such as first- and third-party access, or a mix of external clients and internal services.
+* **Strong foundation for service-to-service trust:** Enables zero-trust networking models with workload identity verification.
 
 #### Cons
 
-* **Operational complexity:** Requires deployment and maintenance of additional components per microservice leading to higher resource usage and costs.
+* **Operational complexity:** Requires deployment and maintenance of additional components per microservice, leading to higher resource usage and costs.
 * **Header spoofing risk:** Misconfiguration or insufficient validation in the proxy can allow malicious clients or internal actors to spoof or manipulate identity headers. Ensuring correct proxy setup and strict header validation is essential to maintain the integrity of identity information.
 * **Configuration consistency:** All proxies across the service landscape must be configured uniformly to ensure consistent authentication behavior and user experience. Inconsistencies in configuration can lead to confusing user flows or even security vulnerabilities.
-* **Authentication data exposure risk:** Using the same authentication data (e.g., tokens, cookies, assertions) for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed - due to misconfiguration or an attacker gaining internal access - the leaked authentication data may enable unauthorized access to sensitive resources.
+* **Coupling of external authentication data with internal trust assumptions:** Using the same authentication data for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed because of a misconfiguration or an attacker gaining internal access, the leaked authentication data may enable unauthorized access to sensitive resources.
 
 ### Edge-Level Authentication
 
-In this pattern, authentication is handled at the system boundary by a shared component such as an API gateway or ingress proxy. This component authenticates incoming requests from external clients before they reach internal services. It integrates with one or multiple Identity Providers (IdPs) using protocols such as OIDC, OAuth2, SAML, or mTLS, and propagates verified identity information, typically via headers, to downstream services for further processing.
+In this pattern, authentication is handled at the system boundary by a shared component such as an API gateway or ingress proxy. This component authenticates incoming requests from external clients before they reach internal services. It integrates with one or multiple Identity Providers (IdPs) using protocols such as OIDC, OAuth2, SAML, mTLS, or other mechanisms, and propagates verified identity information, typically via headers, to downstream services for further processing.
 
 ![Edge-Level Authentication](../assets/Edge_Level_Authentication.svg)
 
@@ -163,30 +194,92 @@ This approach consolidates authentication logic into a single enforcement point,
 
 #### Pros
 
-* **Improved consistency:** Authentication is performed consistently and uniform across services at a single entry point, reducing fragmentation, configuration drift, and improving auditability.
+* **Improved consistency:** Authentication is performed uniformly and consistently across services at a single entry point, reducing fragmentation, configuration drift, and improving auditability.
 * **Simplified service logic:** Internal services are relieved from implementing authentication logic, focusing only on authorization and business functionality.
 * **Faster service onboarding:** New services can rely on existing infrastructure for authentication, requiring minimal additional setup.
-* **[Protocol-agnostic identity propagation](#protocol-agnostic-identity-propagation):** Verified identity information can be propagated to internal services using trusted, implementation-independent formats (e.g., via a newly issued [JWT](https://www.rfc-editor.org/rfc/rfc7519), injected headers carrying identity information in protected form using standards like [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html)), or signed proprietary structures, avoiding the need to handle raw external authentication data.
+* **[Protocol-agnostic identity propagation](#protocol-agnostic-identity-propagation):** Verified identity information can be propagated to internal services using trusted, implementation-independent formats (e.g., via a newly issued [JWT](https://www.rfc-editor.org/rfc/rfc7519), injected headers carrying identity information in protected form using standards like [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html)), or signed proprietary structures. This avoids passing raw external authentication data, as is necessary with all previous patterns.
 
 #### Cons
 
 * **Limited granularity:** Fine-grained or per-endpoint authentication policies (e.g., step-up authentication) are generally harder to implement and may require additional coordination with downstream services. This heavily depends on the capabilities of the edge proxy
 * **Identity propagation challenges:** Ensuring secure and reliable propagation of identity context (e.g., via headers) requires strict validation and trust models between the edge and internal services. Proper governance can help overcome this limitation.
 * **Single Point of Failure:** While the ingress proxy or gateway is already a central component in most architectures, performing authentication at the edge makes it a critical part of the security infrastructure. Misconfiguration or compromise can impact not just access, but the integrity of authentication decisions system-wide.
+* **Not suitable for service-to-service authentication:** Edge-level authentication only applies to incoming external requests. Internal service-to-service calls typically require additional authentication mechanisms.
+
+
+### Kernel-Level Authentication
+
+This pattern involves performing authentication at the operating system or network stack level using cryptographic identities attached to the transport channel itself. Examples include mutual TLS with client certificates or SPIFFE identities, WireGuard, or similar. The identity is cryptographically verified on each connection attempt and enforced by eBPF programs.
+
+This form of enforcement is transparent to applications, making it a strong foundation for secure communication between workloads. It is often used to establish baseline trust within a network or mesh.
+
+
+#### Pros
+
+* **Transparent to applications:** Services do not need to implement authentication logic; identity is enforced by the OS or network.
+* **Protocol-agnostic:** Applies to all traffic types, not just HTTP.
+* **Low latency:** Enables fast connection setup with strong isolation guarantees.
+* **Provides strong workload identity:** Provides identity verification tied directly to the transport channel, reducing risk of spoofing or replay.
+* **Strong foundation for service-to-service trust:** Enables zero-trust networking models with workload identity verification.
+
+#### Cons
+
+* **Not suitable for external or user-level authentication:** Identities are tied to workloads or nodes, not to individual users or external clients.
+* **No access to application-layer context:** Since authentication happens at the transport layer, this pattern cannot convey user-specific identity attributes required for application-level authorization, auditing, or request-specific policy enforcement.
+* **Limited observability:** Monitoring is confined to connection-level data (e.g., source/target workloads), lacking insight into user-driven actions within the application.
+* **Infrastructure complexity:** Requires robust automation for identity issuance and rotation (e.g., mTLS certificates or SPIFFE tokens), PKI management, and OS- or kernel-level policy enforcement mechanisms (via eBPF).
+
+
+### Operational and Security Considerations
+
+While the above authentication patterns differ primarily in terms of *where* and *how* authentication is performed, they also have significant implications for operations and security posture. Choosing the right pattern often comes down to balancing development flexibility, operational effort, and risk tolerance.
+
+#### Operational Considerations
+
+| Pattern                          | Configuration Burden | Operational Overhead     | Observability Scope  |
+| -------------------------------- | -------------------- | -----------------------  | -------------------- |
+| **Service-Level Embedded**       | High                 | High                     | Application-specific |
+| **Service-Level Code-Mediated**  | Medium               | Medium                   | Application-specific |
+| **Service-Level Proxy-Mediated** | Medium               | High (infra cost)        | Proxy + Application  |
+| **Edge-Level**                   | Low                  | Low                      | Centralized (Proxy)  |
+| **Kernel-Level**                 | Medium               | High (infra complexity)  | Network-level only   |
+
+**Note:** Patterns with decentralized authentication (like [Service-Level Embedded Authentication](#service-level-embedded-authentication)) typically incur more operational overhead due to inconsistencies, duplicated configuration, and monitoring complexity. Centralized patterns reduce duplication but introduce infrastructure dependencies and require resilient design.
+
+#### Security Considerations
+
+| Pattern                          | Credential Handling Risk | Identity Spoofing Risk   | Protocol Misuse Risk | Least Privilege Potential            |
+| -------------------------------- | ------------------------ | ------------------------ | -------------------- |--------------------------------------|
+| **Service-Level Embedded**       | Very High                | Medium                   | High                 | Low                                  |
+| **Service-Level Code-Mediated**  | High                     | Medium                   | Medium               | Medium                               |
+| **Service-Level Proxy-Mediated** | Medium                   | Medium (Header spoofing) | Low                  | High                                 |
+| **Edge-Level**                   | Low                      | Low                      | Low                  | Very High (implementation dependent) |
+| **Kernel-Level**                 | Very Low (per workload)  | Very Low                 | N/A                  | High (but coarse-grained)            |
+
+**Note:** Security risks increase significantly when authentication logic and credentials are handled directly in application code. Centralized enforcement (Edge or Kernel) limits exposure, supports strong boundaries, and reduces misconfiguration risks, though care must be taken to prevent trust leakage and misused headers.
+
+The ability to enforce least privilege and maintain secure identity verification in a distributed system depends not only on where authentication occurs but also on how the resulting identity information is propagated and validated downstream. Without trustworthy and tamper-resistant identity propagation, even strong initial authentication can be undermined, weakening trust boundaries across the system. The next section explores common identity propagation strategies, highlighting their impact on system security, observability, and trust enforcement.
+
+**Note:** Operational and security concerns such as token theft, replay protection, session lifecycle, and reauthentication are critical when implementing authentication mechanisms. These topics are extensively covered in the [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html), [Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html), and [Token-Based Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Token_Based_Authentication_Cheat_Sheet.html).
+
 
 ## Identity Propagation Patterns
 
-In modern service architectures, especially those aligned with Zero Trust principles, how identity is propagated internally is just as important as how it is initially authenticated. Identity propagation patterns define how identity context flows between services and determine where and how access control decisions are made.
+As mentioned in the previous section, trustworthy identity propagation is essential for maintaining strong trust boundaries across a system. This concern becomes even more critical in modern service architectures, especially those aligned with Zero Trust principles, where identity propagation patterns describe how identity context flows between services within a system. These patterns influence where and how access control decisions are made, the reliability and trustworthiness of those decisions, and as such determine how effectively least privilege can be enforced. They also differ in how tightly internal services are coupled to the external authentication mechanisms and identity representations used at the boundary.
 
-Some patterns, particularly those rooted in more mature architectures, aim to decouple internal service logic from the details of external authentication mechanisms. These patterns allow internal services to consume identity information in a uniform, trusted way, regardless of whether the external authentication used session cookies, mTLS, SAML, OAuth2, or other protocols. This decoupling of external and internal identity representations simplifies service design, enhances privacy, and supports protocol evolution or migration without invasive changes to internal systems.
+Some identity propagation patterns aim to decouple internal service logic from specific external authentication protocols and data formats. This approach, often called *protocol-agnostic* or *token-agnostic* identity propagation, means internal services consume a normalized, unified identity representation that abstracts away the details of the original authentication protocol and authentication data (including both primary credentials and authentication proofs). This abstraction enables internal services to remain stable, simplified, and focused on authorization logic, even as external authentication methods evolve or change.
 
-Such decoupled approaches are often referred to as "protocol-agnostic" or "token-agnostic" identity propagation. The term "token" here is common shorthand in security contexts for any form of authentication data, including cookies, certificates, and access tokens. Despite this generalization, it's important to understand that not all identity propagation patterns are truly token/protocol-agnostic. Some, especially the simpler approaches, rely directly on the external authentication data and thus tie internal services to protocol-specific behavior and authentication data formats.
+At one end of the spectrum, some patterns directly forward externally issued authentication data (such as OAuth2 tokens, session cookies, or certificates) downstream, requiring internal services to understand and process the original authentication protocols. This approach can increase complexity and trust assumptions within internal services. At the other end, a trusted system component at the edge transforms incoming authentication data into cryptographically signed, normalized identity structures. These structures abstract away the original protocol and data format, allowing internal services to remain agnostic to how authentication was performed. By providing tamper-resistant, verifiable representations of identity, they establish strong trust boundaries across service interactions and enable auditable access decisions, making them especially effective for enforcing least privilege in distributed environments.
 
-The following sections describe a spectrum of identity propagation patterns, ranging from tightly coupled approaches like direct forwarding of external tokens, to fully decoupled models built on cryptographic identity representations issued by trusted components.
+Between these extremes exist intermediate patterns where internal services rely on simplified identity representations issued or transformed by upstream services but without cryptographic protections, requiring implicit trust between services.
+
+Each pattern involves trade-offs between implementation complexity, security, trust, and operational overhead. Choosing the appropriate identity propagation approach depends on the system’s security posture, scalability requirements, and the desired level of trust between internal components.
+
+Understanding these trade-offs in concrete terms requires examining how identity propagation is commonly implemented in practice. The following sections describe representative patterns along this spectrum, highlighting their characteristics, benefits, and limitations.
 
 ### External Identity Propagation
 
-In this pattern, the edge component forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) directly to internal services without transformation. The internal services are responsible for the validation of the received authentication data, for extracting the identity context (such as user ID, roles, or scopes), and making access control decisions based on it. When an internal service needs to communicate with another service, it just forwards the authentication data further downstream.
+In this pattern, the edge component forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) directly to internal services without transformation. The internal services are responsible for the validation of the received authentication data, for extracting the identity context (such as user ID, or other attributes), and making access control decisions based on it. When an internal service needs to communicate with another service, it just forwards the authentication data further downstream.
 
 ![External Identity Propagation](../assets/External_Identity_Propagation.svg)
 
@@ -207,7 +300,7 @@ The actual validation of the authentication data, represented by the dotted line
 
 ### Simple Service-Level Identity Forwarding
 
-This pattern builds on the previous one but introduces a lightweight form of internal identity abstraction. While the edge component still forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) to internal services, each microservice no longer forwards this data unchanged. Instead, a microservice extracts the relevant identity information (e.g., user ID, roles, scopes) from the incoming request and creates a simplified representation of the identity - such as a plain JSON object, a self-signed JWT, or even a single value embedded in a query or path parameter—when making calls to downstream services.
+This pattern builds on the previous one but introduces a lightweight form of internal identity abstraction. While the edge component still forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) to internal services, each microservice no longer forwards this data unchanged. Instead, a microservice extracts the relevant identity information (e.g., user ID, roles, scopes) from the incoming request and creates a simplified representation of the identity, such as a plain JSON object, a self-signed JWT, or even a single value embedded in a query or path parameter, when making calls to downstream services.
 
 ![Simple Service-Level Identity Forwarding](../assets/Simple_Service_Level_Identity_Forwarding.svg)
 
@@ -276,51 +369,13 @@ Unlike in previous patterns, only the edge component is responsible for verifyin
 * **Increased complexity at the edge:** The edge component must handle external authentication data verification as well as internal token generation and signing, making it a critical security component.
 
 
-## Microservice Authentication Patterns
-
-Microservice authentication ensures secure and trusted communication between internal services in a distributed system. This section explores patterns for authenticating service-to-service interactions, focusing on verifying service identities and propagating context for authorization and auditing.
-
-### Mutual Transport Layer (mTLS) Authentication
-
-In this pattern, services authenticate one another at the transport layer using mutual TLS. During the TLS handshake, both the client (caller) and server (callee) present X.509 certificates, allowing each to verify the other's identity before exchanging any data. These certificates are typically issued and rotated by an internal Public Key Infrastructure (PKI) or service mesh.
-
-#### Pros
-
-* **Strong peer identity verification:** Each service can authenticate its communication partner using certificates from a shared trust domain.
-* **Built-in encryption and authenticity:** mTLS secures all communication at the transport layer.
-* **Protocol-agnostic:** Works transparently for HTTP, gRPC, or other protocols without changes to application logic.
-
-#### Cons
-
-* **Operational complexity:** Certificate issuance, rotation, and revocation require automation and infrastructure (e.g., mesh, PKI, SPIRE).
-* **Limited application-level context:** Certificates provide service-level identity but lack granular attributes (e.g., purpose, scopes, tenancy) for fine-grained authorization, auditing, or delegation, requiring additional application-layer mechanisms.
-
-### Token-Based Authentication
-
-In this pattern, the calling service (caller) authenticates itself by attaching a token to each request to another microservice (callee). The token is issued by a trusted token issuer after the service authenticates using its credentials. Upon receiving the token, the callee verifies it, extracts the caller’s identity and any additional attributes, and uses this information for processing or access control decisions.
-
-Tokens may come in different forms:
-
-* **Self-contained tokens** (such as JWTs) embed identity attributes directly, allowing the callee to verify and extract data without further calls.
-* **Opaque tokens** carry a reference which requires online introspection to retrieve the associated identity attributes from the issuer.
-
-This pattern can be implemented using various technologies. A common example is the [OAuth 2.0 Client Credentials Grant](https://www.rfc-editor.org/rfc/rfc6749#section-4.4) flow, often used to issue and manage tokens in service-to-service scenarios. However, it is not the only option. Simpler alternatives, such as API keys, may also be suitable depending on the trust model, environment, and specific requirements for token format, validation, and lifecycle management.
-
-#### Pros
-
-* **Rich application-level context:** Tokens can carry detailed attributes (e.g., roles, tenancy, permissions), enabling fine-grained authorization and business logic at the application layer, as well as tracking of business-level actors or intents, facilitating compliance and delegated authorization.
-* **Flexible integration:** Tokens can be attached to various protocols (e.g., HTTP headers, gRPC metadata), supporting diverse service architectures.
-
-#### Cons
-
-* **Operational complexity:** Issuing, validating, and revoking tokens requires careful coordination and infrastructure to ensure security and scalability.
-* **Issuer scalability and reliability:** The token service must be highly available and performant to avoid bottlenecks or single points of failure.
-* **Dependency on transport-layer security:** Token-based authentication requires TLS to protect token confidentiality and prevent replay attacks.
-
-
 ## Authorization Patterns
 
-Given the reference architecture described above, we can now examine common authorization patterns and explore the trade-offs they entail.
+While some basic access control can be applied to anonymous or unauthenticated subjects, most meaningful authorization requires a reliable understanding of the subject’s associated attributes. Having covered these foundational topics in previous sections, we now turn to how access control decisions are made and enforced across services in distributed systems.
+
+The corresponding architectural approaches are described by authorization patterns. These patterns determine the placement and interaction of Policy Decision Points (PDPs) and Policy Enforcement Points (PEPs) within a system, as well as how subject attributes and object attributes flow between components, and where policies are stored and accessed.
+
+Choosing the right pattern is critical, as it directly impacts the system’s security posture, scalability, maintainability, and trust boundaries. The following subsections explore the most common ones used in distributed architectures, outlining their trade-offs and typical use cases.
 
 ### Decentralized Service-Level Access Control
 
@@ -330,7 +385,7 @@ In this pattern, most of the functional components from the reference architectu
 
 The access control rules are typically implemented using native language constructs (e.g., `if`/`else` statements), either inline with business logic functions or via abstraction mechanisms such as interceptors.
 
-When a microservice receives a request containing authorization metadata (e.g., end-user context or resource identifiers), it evaluates whether access should be granted. This may involve querying other services (PIPs) for additional attributes before reaching a decision and enforcing it (implicitly). Alternatively, some services may use asynchronous communication patterns (e.g., periodic syncs or event-driven updates) to pre-fetch required data in advance, improving performance and resilience.
+When a microservice receives a request containing authorization data (e.g., end-user context or resource identifiers), it evaluates whether access should be granted. This may involve querying other services (PIPs) for additional attributes before reaching a decision and enforcing it (implicitly). Alternatively, some services may use asynchronous communication patterns (e.g., periodic syncs or event-driven updates) to pre-fetch required data in advance, improving performance and resilience.
 
 When adopting this approach, the following trade-offs should be considered:
 
@@ -346,7 +401,7 @@ When adopting this approach, the following trade-offs should be considered:
 
 #### Cons
 
-* **Scattered logic**: Authorization requirements tend to spread across multiple microservices, leading to code duplication, increased complexity, and maintenance overhead. Over time, this results in a slow and error-prone policy lifecycle, significantly reducing time to market. This is a classic “Hardcoded Rules” antipattern.
+* **Scattered logic**: Authorization requirements tend to spread across multiple services, leading to code duplication, increased complexity, and maintenance overhead. Over time, this results in a slow and error-prone policy lifecycle, significantly reducing time to market. This is a classic “Hardcoded Rules” antipattern.
 * **Role explosion**: Business stakeholders typically describe authorization requirements using roles - for example, “a user with role X can do Y.” Without introducing an abstraction layer between business roles and the actual implementation, systems often accumulate many similar but inconsistent roles. Roles also tend to evolve or change names over time. This leads quickly to role explosion, again slowing the policy lifecycle and increasing the risk of errors. This is known as the “Code Against the Role” antipattern.
 * Inconsistent interpretations: Autonomous teams may interpret and implement policies differently, making consistent governance across the system nearly impossible. This results in enforcement gaps and unpredictable behavior.
 * **No central auditability**: When authorization logic is distributed across services, it becomes nearly impossible to answer "before-the-fact" questions such as "Who has access to what, and when?" - a key requirement in compliance and security contexts.
@@ -359,7 +414,7 @@ These cons often result in "accept by default" behavior, ultimately leading to b
 
 ### Centralized Service-Level Access Control with embedded PDP
 
-This pattern aims to address the first three drawbacks of the previous pattern, namely the "Hardcoded Rules" and "Code Against the Role" antipatterns. The goal is to reduce complexity, improve time to market, and establish governance over policy definitions. In this model, authorization rules are defined independently from the microservice code. This separation allows policies to be reviewed, versioned, and audited without being tied to the specific implementation languages of the microservices. These policies can reside in a dedicated policy repository, which explains the "centralized" in the pattern name, or they can be colocated with the service code in the same repository. The essential aspect is that policies are decoupled from the service code, rather than centralized in infrastructure terms. The actual evaluation of access decisions still takes place locally to each microservice using an embedded PDP.
+This pattern aims to address the first three drawbacks of the previous pattern - to reduce complexity, improve time to market, and establish governance over policy definitions. In this model, authorization rules are defined independently of the microservice code. This separation allows policies to be reviewed, versioned, and audited without being tied to the specific implementation languages of the microservices. These policies can reside in a dedicated policy repository, which explains the "centralized" in the pattern name, or they can be colocated with the service code in the same repository. The essential aspect is that policies are decoupled from the service code, rather than centralized in infrastructure terms. The actual evaluation of access decisions still takes place locally to each microservice using an embedded PDP.
 
 The PDP can be implemented as a library (e.g., [Casbin](https://casbin.org/)) embedded in the service’s codebase, or as a local sidecar process (e.g., [Open Policy Agent](https://www.openpolicyagent.org/)). Authorization rules are now defined using the PDP’s domain-specific language (e.g., Rego in the case of OPA), rather than being hardcoded into the service logic. Typically, the PDPs with this pattern implement the so-called Policy-Based Access Control (PBAC) approach.
 
@@ -442,7 +497,7 @@ Since all external traffic flows through the edge component, this is the first p
 
 #### Cons
 
-* **Authentication limitations:** Edge components only support a single authentication configuration per listener or route group. Supporting multiple identity providers, per-endpoint authentication flows, or more advanced patterns—such as dynamic consent, step-up authentication, or conditional logic based on user actions—is difficult or impossible without custom logic or deep integration.
+* **Authentication limitations:** Edge components only support a single authentication configuration per listener or route group. Supporting multiple identity providers, per-endpoint authentication flows, or more advanced patterns—such as dynamic consent, step-up authentication, or conditional logic based on subject actions — is difficult or impossible without custom logic or deep integration.
 * **Lack of contextual inputs:** Edge components only have access to request-level attributes (e.g., headers, paths, IPs). This makes it difficult to evaluate fine-grained, object-level, or business-context-sensitive access decisions.
 * **Enforcement blind spots and defense-in-depth violations:** Since the edge only governs ingress traffic, any internal traffic (e.g., service-to-service calls) or network misconfigurations may bypass enforcement entirely - violating the defense-in-depth principle and creating a single point of failure.
 * **Performance overhead:** Delegating decisions to an external PDP introduces additional network hops, which may impact latency-sensitive applications.
@@ -465,7 +520,7 @@ Instead of embedding rigid policy logic or centralizing control in infrastructur
 * **Best observability:** All external access attempts are visible and can be logged centrally, supporting effective monitoring, alerting, and forensics.
 * **Support for "before-the-fact" audit:** Particularly with ReBAC and NGAC systems as PDP, authorization models allow querying the existing access rights making answering the corresponding questions a simple game.
 * **Rapid prototyping:** Through authorization contracts, teams can experiment with different authorization models (e.g., embedded JWT claims, header-based roles, etc.) without relying on the infrastructure components.
-* **Fine-grained context:** The proxy can fetch contextual data from arbitrary PIPs, enabling context-sensitive decisions based on domain-specific attributes, object metadata, or user state.
+* **Fine-grained context:** The proxy can fetch contextual data from arbitrary PIPs, enabling context-sensitive decisions based on domain-specific attributes, object metadata, or subject state.
 * **Service autonomy:** Authorization contracts empower microservice teams to define their own access control needs declaratively, supporting domain-driven service ownership without duplicating enforcement logic.
 * **Protocol-agnostic identity propagation:** The system can rewrite identity and authorization data into formats that match each service’s expectations (e.g., structured JWTs, plain or signed headers), decoupling service specific logic from authentication or authorization protocols.
 * **Secure by Default:** The use of declarative contracts and centralized enforcement reduces misconfiguration risks and prevents implicit access grants.
@@ -547,8 +602,8 @@ Selecting an authorization pattern requires understanding the properties of the 
 
 **Cardinality**
 
-* **High Cardinality Data:** Data that is highly specific to individual requests or users and tends to change frequently, like a real-time risk score computed per authentication attempt or the time of the last successful MFA challenge.
-* **Medium Cardinality Data:** Data that applies to a set of users or resources and has moderate variability, like project identifiers tied to multiple resources
+* **High Cardinality Data:** Data that is highly specific to individual requests or subjects and tends to change frequently, like a real-time risk score computed per authentication attempt or the time of the last successful MFA challenge.
+* **Medium Cardinality Data:** Data that applies to a set of subjects or resources and has moderate variability, like project identifiers tied to multiple resources
 * **Low Cardinality Data:** Data with few distinct values, often static or organizationally defined. For example, environment labels (e.g., “production”, “staging”), or business unit identifiers (e.g., “HR”, “Finance”, “R&D”).
 
 ### Data Distribution Strategies

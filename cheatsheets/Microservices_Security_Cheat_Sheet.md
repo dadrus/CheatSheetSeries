@@ -436,7 +436,7 @@ Although this pattern significantly improves maintainability and consistency of 
 #### Cons
 
 * **Policy distribution complexity:** Policies are now decoupled from the code, so mechanisms are needed to deploy the correct version of each policy to the appropriate service instances.
-* **Context sharing:** PDPs do not inherently have access to the microservice context. Developers must design mechanisms to assemble and pass the right attributes into the PDP for evaluation. Even though efforts have been put to address that (e.g. the [AuthZEN Authorization API](https://openid.net/authzen-authorization-api-1-0-implementers-draft-approved/)), there are many more topics to be addressed in addition.
+* **Context sharing:** PDPs do not inherently have access to the microservice context. Developers must design mechanisms to assemble and pass the right attributes into the PDP for evaluation.
 * **Limited auditability:** Since decisions remain distributed, "before-the-fact" questions—like "Who has access to what and when?" remain difficult to answer system-wide.
 * **Coverage gaps:** Some frameworks expose endpoints by default, often without offering hooks for policy enforcement. Teams may also just forget to add the required logic to some endpoints. Combined with poor or misleading documentation, this can result in unintentionally exposed functionality and missed access control. Common examples include health and metrics endpoints (e.g., Spring Boot Actuator), auto-generated documentation routes (e.g., FastAPI or OpenAPI UIs), or static routes in frameworks like e.g. Express.js.
 * **Incomplete enforcement observability:** While policy decisions are consistently logged, there’s often no visibility into whether those decisions were correctly enforced across all code paths. Missing instrumentation or scattered enforcement logic makes it difficult to validate effective protection, investigate incidents, analyze system-wide access patterns or detect abuse.
@@ -640,7 +640,7 @@ Data is proactively sent to the PDP in advance, and stored in memory or a local 
 
 #### Request-Time Data Injection
 
-Required data is included in the "decision" request sent to the PDP by the PEP. This approach is also known as inline data passing.
+Required data is passed directly in the request from the PEP to the PDP — an approach often referred to as *inline data passing*. Early-stage standardization efforts ([OpenID AuthZEN Initiative](https://openid.net/authzen-authorization-api-1-0-implementers-draft-approved/)) aim to make this interaction more consistent and interoperable.
 
 **Pros**
 

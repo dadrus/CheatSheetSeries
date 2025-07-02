@@ -445,7 +445,7 @@ Due to these remaining gaps, “accept by default” behaviors remain a real ris
 
 ### Centralized Service-Level Access Control with external PDP
 
-This pattern extends the previous one and aims to address not only the "Hardcoded Rules," "Code Against the Role," and policy governance issues from the "Decentralized Service-Level Access Control" pattern, but also the limitation of "Limited Auditability". As before, policies are managed centrally - meaning they are defined independently of the service code, typically in a shared repository and subject to versioning, review, and approval processes. However, unlike the previous pattern where evaluation happens locally via an embedded PDP, here access decisions are made by an external PDP. "External" in this context means that the PDP is not embedded within the service but runs as a separate service, which the microservices communicate with at runtime. This PDP may be shared across a domain (in domain driven design sense), scoped to a business unit, or truly central depending on organizational needs.
+This pattern extends the previous one and aims to address not only the "Hardcoded Rules," "Code Against the Role," and policy governance issues from the "Decentralized Service-Level Access Control" pattern, but also the limitation of "Limited auditability". As before, policies are managed centrally - meaning they are defined independently of the service code, typically in a shared repository and subject to versioning, review, and approval processes. However, unlike the previous pattern where evaluation happens locally via an embedded PDP, here access decisions are made by an external PDP. "External" in this context means that the PDP is not embedded within the service but runs as a separate service, which the microservices communicate with at runtime. This PDP may be shared across a domain (in domain driven design sense), scoped to a business unit, or truly central depending on organizational needs.
 
 ![Centralized Service-Level Access Control with external PDP](../assets/Centralized_Service_Level_Access_Control_with_external_PDP.svg)
 
@@ -484,7 +484,7 @@ This pattern aims to address several shortcomings of Decentralized Service-Level
 
 Since authorization must follow authentication, this pattern tightly couples authentication and authorization at the network boundary. Gateways or proxies serve as the Policy Enforcement Point (PEP), and either evaluate policies locally (using embedded logic or libraries, similar to the “centralized with embedded PDP” pattern) or delegate decisions to an external Policy Decision Point (PDP) (as in the “centralized service-level access control” pattern).
 
-Since all external traffic flows through the edge component, this is the first pattern that guarantees every inbound request is observed and subject to access control logic. This minimizes the risk of unnoticed “accept by default” behavior and establishes a consistent enforcement point for all inbound traffic—but introduces its own set of trade-offs.
+Since all external traffic flows through the edge component, this is the first pattern that guarantees every inbound request is observed and subject to access control logic.
 
 #### Pros
 

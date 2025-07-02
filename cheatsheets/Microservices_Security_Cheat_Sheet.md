@@ -18,10 +18,10 @@ These functional components are:
 
 * **Subject:** An active entity that attempts to perform an action on an Object.
 * **Object:** A passive entity that is the target of an action attempted by the Subject.
-* **Policy Administration Point (PAP):** Manages access control policies by providing tools for authoring, testing, and maintaining them.
-* **Policy Decision Point (PDP):** Evaluates policies and computes authorization decisions based on the access request and relevant attributes.
 * **Policy Enforcement Point (PEP):** Intercepts requests and enforces the access decision provided by the PDP.
+* **Policy Decision Point (PDP):** Evaluates policies and computes authorization decisions based on the access request and relevant attributes.
 * **Policy Information Point (PIP):** Supplies attribute data or contextual information that the PDP requires to evaluate a policy.
+* **Policy Administration Point (PAP):** Manages access control policies by providing tools for authoring, testing, and maintaining them.
 
 ### A Story to Ground the Concepts
 
@@ -81,11 +81,11 @@ While exploring these contexts, it's important to understand that different prot
 
 What all these protocols have in common is that they define mechanisms to authenticate the involved parties. However, the details of how this authentication is performed - e.g., through passwords, or by making use of other factors - are not covered in this cheat sheet. Likewise, the protocols themselves are not the focus here; there are excellent existing cheat sheets for that purpose (which we will reference). Instead, this document emphasizes patterns: how different approaches to authentication and authorization are architecturally applied, and what implications they carry.
 
-### On Subjects and Principals
+### On Subjects, Principals and Identities
 
 Another important topic to understand before we explore authentication and authorization patterns is the concept of a **subject**. According to the reference architecture and the story above, a subject is an active entity that carries an identity and is the target of authentication.
 
-However, in most real-world systems, authentication is not limited to a single type of entity. Instead, there are often multiple forms of identity involved, each representing a different kind of actor or context:
+However, in most real-world systems, authentication is not limited to a single type of active entity. Instead, there are often multiple forms of identity involved, each representing a different kind of actor or context:
 
 * **End-users:** Human users interacting with a system via a browser or mobile app.
 * **Devices:** The user’s device (e.g., smartphone, laptop, or IoT hardware), which may have its own identity.
@@ -94,7 +94,9 @@ However, in most real-world systems, authentication is not limited to a single t
 
 All of these are **principals** — identifiable entities that can be authenticated and authorized. A **subject**, in turn, may consist of one or more such principals. For example, a request from a mobile app may involve both the authenticated user and the device they’re using. In a service-to-service call, the subject might be the internal service identity, optionally carrying along delegated user context.
 
-Understanding subjects in this compositional way is key to interpreting the patterns described below. While many patterns focus on a single principal type (e.g., user or service), they often support **multi-principal subjects** through identity propagation and proper orchestration of authentication mechanisms.
+Understanding subjects in this compositional way is key to interpreting the patterns described in this cheat sheet. While many patterns focus on a single principal type (e.g., user or service), they often support **multi-principal subjects** through identity propagation and proper orchestration of authentication mechanisms.
+
+The last remaining concept to cover is **identity**. An identity is a collection of attributes that uniquely identify an entity, similar to a primary key in a database. In some cases, this might be a single attribute such as an ID, while in others it can be a combination of several attributes. Unlike subjects and principals, which refer to active entities or actors, the concept of identity also applies to passive entities — the objects — as well.
 
 
 ## Authentication Patterns
@@ -107,14 +109,16 @@ Authentication can be handled at different layers of a system’s architecture. 
 
 Each approach comes with trade-offs in terms of scalability, consistency, and operational complexity.
 
-Before diving into these patterns, it is important to clarify what is being verified. Most systems handle authentication in two phases:
+Authentication applies to different types of actors. These can be **external** actors, such as end users or client applications outside the system, or **internal** actors, such as services, or other workloads, and even nodes, the workloads are running on, all operating within the system boundary. The same architectural patterns can often be applied to both kinds of actors, though the technical mechanisms and trust assumptions differ.
 
-* **Primary Authentication:** This is the process of directly verifying credentials tied to authentication factors, such as passwords, biometric inputs, or signed challenges like WebAuthn assertions. This step proves control of an authentication factor — something the subject knows, has, or is — and importantly, it establishes the identity by linking the verified factor to a known identity record, such as a user account.
-* **Authentication Proof Verification:** After successful primary authentication, the system typically issues an authentication proof — a reusable artifact that confirms the authenticated identity in subsequent interactions. At the application layer, this might take the form of a session cookie, token, or assertion. At lower layers, it can take the form of cryptographic session state, such as a TLS session key or an IPsec Security Association. Verifying the proof ensures that the identity remains trusted without repeating primary authentication.
+Before diving into these patterns, it is also important to clarify what is being verified. Most systems handle authentication in two phases:
+
+* **Primary Authentication:** This is the process of directly verifying credentials tied to authentication factors, such as passwords, biometric inputs, or signed challenges like WebAuthn assertions. For internal actors, this might involve validating machine-issued certificates, SPIFFE IDs, or workload authentication data issued by the platform. This step establishes identity by proving control over a credential and linking it to a known identity, such as a user account or a system identity.
+* **Authentication Proof Verification:** After successful primary authentication, the system typically issues an authentication proof — a reusable artifact that confirms the authenticated identity in subsequent interactions. At the application layer, this might take the form of a session cookie, token, or assertion. At lower layers, it can take the form of cryptographic session state, such as a TLS session key, IPsec Security Association, or similar. Verifying the proof ensures that the identity remains trusted without repeating primary authentication.
 
 Where this distinction is not relevant, the term **authentication data** is used to refer collectively to both primary credentials and authentication proofs. The following subsections use this term when referring to either or both phases.
 
-The patterns explained in the following subsections differ in **what** is verified (credentials in primary authentication vs. authentication proofs), **where** verification happens, and **which** implications this has for system design.
+The patterns described below differ in **what** is verified (credentials in primary authentication vs. authentication proofs), **where** verification happens, and **which** implications this has for system design and trust boundaries.
 
 
 ### Service-Level Embedded Authentication
@@ -127,6 +131,7 @@ In this pattern, each service is responsible for handling primary authentication
 
 * **Simplicity:** Each service is fully self-contained and does not rely on external systems or additional infrastructure for authentication.
 * **Customization freedom:** Authentication behavior can be adapted to service-specific requirements without external constraints.
+* **Support for external and internal actors:** Since the implementation of a service can fully control all authentication related functionality, orchestration of different authentication contexts - like authentication of internal services and external users - is possible, but comes with a huge complexity (see also the authentication orchestration con below).
 
 #### Cons
 
@@ -134,7 +139,7 @@ In this pattern, each service is responsible for handling primary authentication
 * **Security risk:** Authentication code is duplicated across services, increasing the risk of vulnerabilities and complicating audits.
 * **Maintenance burden:** Changing authentication methods (e.g., introducing MFA) requires updates across all affected services.
 * **Limited scalability:** Each service is responsible for identity management, complicating secure identity management across a large system. This makes the pattern unsuitable for scalable service-to-service authentication.
-* **Authentication orchestration:** Supporting multiple authentication configurations, including protocol chaining and subject-specific variations, required to support different contexts, like first- and third-party, or external client and service-to-service authentication, adds significant complexity.
+* **Authentication orchestration:** Handling of multi-principal subjects — that is supporting multiple authentication configurations, including protocol chaining and subject-specific variations, required to support different contexts, like first- and third-party, or external client and service-to-service authentication, adds significant complexity.
 * **Coupling of external authentication data with internal trust assumptions:** Using the same authentication data for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed because of a misconfiguration or an attacker gaining internal access, the leaked authentication data may enable unauthorized access to sensitive resources.
 
 ### Service-Level Code-Mediated Authentication
@@ -148,14 +153,15 @@ This pattern addresses key limitations of the [Service-Level Embedded Authentica
 * **SSO support:** Identity and credential lifecycle is consolidated in the IdP, enabling Single Sign-On and reducing duplication.
 * **Lower security risks:** Centralized authentication reduces the attack surface related to credential handling.
 * **Improved user experience:** Consistent authentication flows and session handling across services.
-* **Interoperability:** Widely adopted protocols like OIDC and SAML provide flexibility and broad integration possibilities with various IdPs.
-* * **Customization freedom:** Services can still tailor authentication behavior to specific needs, for example, in environments where standards like OIDC are not applicable.
+* **Interoperability:** Widely adopted protocols like [OIDC](https://openid.net/specs/openid-connect-core-1_0.html) and [SAML](https://www.oasis-open.org/standard/saml/) provide flexibility and broad integration possibilities with various IdPs.
+* **Customization freedom:** Services can still tailor authentication behavior to specific needs, for example, in environments where standards like OIDC are not applicable.
+* **Support for external and internal actors:** Since the implementation of a service can fully control all authentication related functionality, orchestration of different authentication contexts - like authentication of internal services and external users - is possible, but comes with a huge complexity (see also the authentication orchestration con below).
 
 #### Cons
 
 * **Protocol handling overhead:** Each service must implement and maintain logic for authentication proof verification and protocol-specific behavior.
 * **Misconfiguration risks:** Incorrect verification logic, such as missing expiration checks or improper cryptography use, can introduce sever security vulnerabilities.
-* **Authentication orchestration:** Supporting multiple authentication configurations, including protocol chaining and subject-specific variations, required to support different contexts, like first- and third-party, or external client and service-to-service authentication, adds significant complexity.
+* **Authentication orchestration:** Handling of multi-principal subjects — that is supporting multiple authentication configurations, including protocol chaining and subject-specific variations, required to support different contexts, like first- and third-party, or external client and service-to-service authentication, adds significant complexity.
 * **Coupling of external authentication data with internal trust assumptions:** Using the same authentication data for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed because of a misconfiguration or an attacker gaining internal access, the leaked authentication data may enable unauthorized access to sensitive resources.
 
 
@@ -170,12 +176,12 @@ This pattern builds on the [previous pattern](#service-level-code-mediated-authe
 * **SSO support:** Identity and credential lifecycle is consolidated in the IdP, enabling Single Sign-On and reducing duplication.
 * **Lower security risks:** Centralized authentication reduces the attack surface related to credential handling.
 * **Improved user experience:** Consistent authentication flows and session handling across services.
-* **Interoperability:** Widely adopted protocols like OIDC and SAML provide flexibility and broad integration possibilities with various IdPs.
+* **Interoperability:** Widely adopted protocols like [OIDC](https://openid.net/specs/openid-connect-core-1_0.html) and [SAML](https://www.oasis-open.org/standard/saml/) provide flexibility and broad integration possibilities with various IdPs.
 * **Separation of concerns:** Removes authentication-related logic from application code by offloading it to the proxy, simplifying service development and reducing maintenance effort.
 * **Consistent behavior:** Identity verification and protocol handling in the proxy ensure uniform behavior across services.
 * **Improved security posture:** Reduces the risk of implementation flaws by consolidating authentication-related logic into a dedicated, hardened component.
 * **Authentication orchestration:** Some proxies support multiple authentication configurations, including protocol chaining and subject-specific variations. This enables support for different contexts, such as first- and third-party access, or a mix of external clients and internal services.
-* **Strong foundation for service-to-service trust:** Enables zero-trust networking models with workload identity verification.
+* **Strong foundation for service-to-service trust:** Enables [Zero Trust](https://csrc.nist.gov/pubs/sp/800/207/final) networking with workload identity, typically realized via systems like [SPIFFE/SPIRE](https://spiffe.io/), which define workload identities embedded in [X.509 certificates](https://www.rfc-editor.org/rfc/rfc5280) used for [mTLS](https://www.rfc-editor.org/rfc/rfc8446) authentication between services.
 
 #### Cons
 
@@ -186,7 +192,7 @@ This pattern builds on the [previous pattern](#service-level-code-mediated-authe
 
 ### Edge-Level Authentication
 
-In this pattern, authentication is handled at the system boundary by a shared component such as an API gateway or ingress proxy. This component authenticates incoming requests from external clients before they reach internal services. It integrates with one or multiple Identity Providers (IdPs) using protocols such as OIDC, OAuth2, SAML, mTLS, or other mechanisms, and propagates verified identity information, typically via headers, to downstream services for further processing.
+In this pattern, authentication is handled at the system boundary by a shared component such as an API gateway or ingress proxy. This component authenticates incoming requests from external clients before they reach internal services. It integrates with one or multiple Identity Providers (IdPs) using protocols such as [OIDC](https://openid.net/specs/openid-connect-core-1_0.html), [OAuth2](https://www.rfc-editor.org/rfc/rfc6749), [SAML](https://www.oasis-open.org/standard/saml/), [mTLS](https://www.rfc-editor.org/rfc/rfc8446), or other mechanisms, and propagates verified identity information, typically via headers, to downstream services for further processing.
 
 ![Edge-Level Authentication](../assets/Edge_Level_Authentication.svg)
 
@@ -197,75 +203,63 @@ This approach consolidates authentication logic into a single enforcement point,
 * **Improved consistency:** Authentication is performed uniformly and consistently across services at a single entry point, reducing fragmentation, configuration drift, and improving auditability.
 * **Simplified service logic:** Internal services are relieved from implementing authentication logic, focusing only on authorization and business functionality.
 * **Faster service onboarding:** New services can rely on existing infrastructure for authentication, requiring minimal additional setup.
-* **[Protocol-agnostic identity propagation](#protocol-agnostic-identity-propagation):** Verified identity information can be propagated to internal services using trusted, implementation-independent formats (e.g., via a newly issued [JWT](https://www.rfc-editor.org/rfc/rfc7519), injected headers carrying identity information in protected form using standards like [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html)), or signed proprietary structures. This avoids passing raw external authentication data, as is necessary with all previous patterns.
+* **Protocol-agnostic identity propagation:** Verified identity information can be propagated to internal services using trusted, implementation-independent formats (e.g., via a newly issued [JWT](https://www.rfc-editor.org/rfc/rfc7519), injected headers carrying identity information in protected form using standards like [HTTP Message Signatures](https://www.rfc-editor.org/rfc/rfc9421.html)), or signed proprietary structures. This avoids passing raw external authentication data, as is necessary with all previous patterns.
 
 #### Cons
 
 * **Limited granularity:** Fine-grained or per-endpoint authentication policies (e.g., step-up authentication) are generally harder to implement and may require additional coordination with downstream services. This heavily depends on the capabilities of the edge proxy
 * **Identity propagation challenges:** Ensuring secure and reliable propagation of identity context (e.g., via headers) requires strict validation and trust models between the edge and internal services. Proper governance can help overcome this limitation.
 * **Single Point of Failure:** While the ingress proxy or gateway is already a central component in most architectures, performing authentication at the edge makes it a critical part of the security infrastructure. Misconfiguration or compromise can impact not just access, but the integrity of authentication decisions system-wide.
-* **Not suitable for service-to-service authentication:** Edge-level authentication only applies to incoming external requests. Internal service-to-service calls typically require additional authentication mechanisms.
+* **Not suitable for service-to-service authentication:** Edge-level authentication only applies to incoming external requests. Internal service-to-service calls require additional authentication mechanisms.
 
 
 ### Kernel-Level Authentication
 
-This pattern involves performing authentication at the operating system or network stack level using cryptographic identities attached to the transport channel itself. Examples include mutual TLS with client certificates or SPIFFE identities, WireGuard, or similar. The identity is cryptographically verified on each connection attempt and enforced by eBPF programs.
+This pattern involves performing authentication at the operating system kernel level using cryptographic identities attached to either a service, or a machine/node, the service is running on. The actual implementation is based on protocols, such as IPSec, or WireGuard. The identity of a peer is cryptographically verified on each exchanged packet and is limited to layer 3. This form of enforcement is transparent to applications, making it a strong foundation for secure communication between workloads.
 
-This form of enforcement is transparent to applications, making it a strong foundation for secure communication between workloads. It is often used to establish baseline trust within a network or mesh.
+![Kernel-Level Authentication](../assets/Kernel_Level_Authentication.svg)
 
 
 #### Pros
 
-* **Transparent to applications:** Services do not need to implement authentication logic; identity is enforced by the OS or network.
+* **Transparent to applications:** Services do not need to implement authentication logic; identity is enforced by the OS Kernel.
 * **Protocol-agnostic:** Applies to all traffic types, not just HTTP.
 * **Low latency:** Enables fast connection setup with strong isolation guarantees.
-* **Provides strong workload identity:** Provides identity verification tied directly to the transport channel, reducing risk of spoofing or replay.
-* **Strong foundation for service-to-service trust:** Enables zero-trust networking models with workload identity verification.
+* **Provides strong workload identity:** Provides identity verification tied directly to the transport channel, reducing risk of spoofing or replay, which makes it a strong foundation for service-to-service trust and enables [Zero Trust](https://csrc.nist.gov/pubs/sp/800/207/final) networking models.
 
 #### Cons
 
-* **Not suitable for external or user-level authentication:** Identities are tied to workloads or nodes, not to individual users or external clients.
-* **No access to application-layer context:** Since authentication happens at the transport layer, this pattern cannot convey user-specific identity attributes required for application-level authorization, auditing, or request-specific policy enforcement.
+* **Not suitable for layer 7 — application-level — authentication:** Identities are tied to workloads or nodes only and not to individual users or external clients. Because of this, this pattern cannot convey user-specific identity attributes.
 * **Limited observability:** Monitoring is confined to connection-level data (e.g., source/target workloads), lacking insight into user-driven actions within the application.
-* **Infrastructure complexity:** Requires robust automation for identity issuance and rotation (e.g., mTLS certificates or SPIFFE tokens), PKI management, and OS- or kernel-level policy enforcement mechanisms (via eBPF).
+* **Infrastructure complexity:** Requires robust automation for identity management, and OS- or kernel-level policy enforcement mechanisms (e.g. via [eBPF](https://ebpf.io/)).
 
 
 ### Operational and Security Considerations
 
-While the above authentication patterns differ primarily in terms of *where* and *how* authentication is performed, they also have significant implications for operations and security posture. Choosing the right pattern often comes down to balancing development flexibility, operational effort, and risk tolerance.
+While the above authentication patterns differ primarily in terms of *where* and *how* authentication is performed, they also have significant implications for operations and authorization. Choosing the right pattern often comes down to balancing development flexibility, operational effort, and risk tolerance.
 
 #### Operational Considerations
 
 | Pattern                          | Configuration Burden | Operational Overhead     | Observability Scope  |
-| -------------------------------- | -------------------- | -----------------------  | -------------------- |
+| -------------------------------- |----------------------| -----------------------  | -------------------- |
 | **Service-Level Embedded**       | High                 | High                     | Application-specific |
 | **Service-Level Code-Mediated**  | Medium               | Medium                   | Application-specific |
 | **Service-Level Proxy-Mediated** | Medium               | High (infra cost)        | Proxy + Application  |
 | **Edge-Level**                   | Low                  | Low                      | Centralized (Proxy)  |
-| **Kernel-Level**                 | Medium               | High (infra complexity)  | Network-level only   |
+| **Kernel-Level**                 | Low-Medium           | High (infra complexity)  | Network-level only   |
 
-**Note:** Patterns with decentralized authentication (like [Service-Level Embedded Authentication](#service-level-embedded-authentication)) typically incur more operational overhead due to inconsistencies, duplicated configuration, and monitoring complexity. Centralized patterns reduce duplication but introduce infrastructure dependencies and require resilient design.
+Patterns with decentralized authentication (like [Service-Level Embedded Authentication](#service-level-embedded-authentication)) typically incur more operational overhead due to inconsistencies, duplicated configuration, and monitoring complexity. Centralized patterns reduce duplication but introduce infrastructure dependencies and require resilient design.
 
 #### Security Considerations
 
-| Pattern                          | Credential Handling Risk | Identity Spoofing Risk   | Protocol Misuse Risk | Least Privilege Potential            |
-| -------------------------------- | ------------------------ | ------------------------ | -------------------- |--------------------------------------|
-| **Service-Level Embedded**       | Very High                | Medium                   | High                 | Low                                  |
-| **Service-Level Code-Mediated**  | High                     | Medium                   | Medium               | Medium                               |
-| **Service-Level Proxy-Mediated** | Medium                   | Medium (Header spoofing) | Low                  | High                                 |
-| **Edge-Level**                   | Low                      | Low                      | Low                  | Very High (implementation dependent) |
-| **Kernel-Level**                 | Very Low (per workload)  | Very Low                 | N/A                  | High (but coarse-grained)            |
+Security risks increase significantly when authentication logic and credentials are handled directly within application code. Centralized enforcement approaches — whether at the edge or within the OS kernel — help limit exposure, enforce stronger boundaries, and reduce the risk of misconfiguration. However, care must be taken to prevent trust leakage, which directly impacts the ability to enforce the principle of least privilege. Achieving this depends not only on where authentication occurs, but also on how identity information is propagated and verified downstream. Without trustworthy, tamper-resistant propagation, even strong initial authentication can be undermined — weakening trust boundaries and ultimately impairing the system’s ability to make reliable authorization decisions. To address this, the next section examines common identity propagation strategies and their impact on system security, observability, and trust enforcement.
 
-**Note:** Security risks increase significantly when authentication logic and credentials are handled directly in application code. Centralized enforcement (Edge or Kernel) limits exposure, supports strong boundaries, and reduces misconfiguration risks, though care must be taken to prevent trust leakage and misused headers.
-
-The ability to enforce least privilege and maintain secure identity verification in a distributed system depends not only on where authentication occurs but also on how the resulting identity information is propagated and validated downstream. Without trustworthy and tamper-resistant identity propagation, even strong initial authentication can be undermined, weakening trust boundaries across the system. The next section explores common identity propagation strategies, highlighting their impact on system security, observability, and trust enforcement.
-
-**Note:** Operational and security concerns such as token theft, replay protection, session lifecycle, and reauthentication are critical when implementing authentication mechanisms. These topics are extensively covered in the [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html), [Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html), and [Token-Based Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Token_Based_Authentication_Cheat_Sheet.html).
+**Note:** Operational and security concerns such as token theft, replay protection, session lifecycle, and reauthentication are critical when implementing authentication mechanisms. These topics are extensively covered in e.g. [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html), and [Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
 
 
 ## Identity Propagation Patterns
 
-As mentioned in the previous section, trustworthy identity propagation is essential for maintaining strong trust boundaries across a system. This concern becomes even more critical in modern service architectures, especially those aligned with Zero Trust principles, where identity propagation patterns describe how identity context flows between services within a system. These patterns influence where and how access control decisions are made, the reliability and trustworthiness of those decisions, and as such determine how effectively least privilege can be enforced. They also differ in how tightly internal services are coupled to the external authentication mechanisms and identity representations used at the boundary.
+As mentioned in the previous section, trustworthy identity propagation — the focus of this section — is essential for maintaining strong trust boundaries across a system. Architectures following [Zero Trust](https://csrc.nist.gov/pubs/sp/800/207/final) principles exemplify this need, as they emphasize strict access control and continuous verification. This section introduces commonly used identity propagation patterns — that is, the ways in which identity context flows between services. These patterns influence where and how access control decisions are made, the reliability and trustworthiness of those decisions, and ultimately how effectively least privilege can be enforced. They also differ in how tightly internal services are coupled to the external authentication mechanisms and identity representations used at the boundary.
 
 Some identity propagation patterns aim to decouple internal service logic from specific external authentication protocols and data formats. This approach, often called *protocol-agnostic* or *token-agnostic* identity propagation, means internal services consume a normalized, unified identity representation that abstracts away the details of the original authentication protocol and authentication data (including both primary credentials and authentication proofs). This abstraction enables internal services to remain stable, simplified, and focused on authorization logic, even as external authentication methods evolve or change.
 
@@ -279,11 +273,11 @@ Understanding these trade-offs in concrete terms requires examining how identity
 
 ### External Identity Propagation
 
-In this pattern, the edge component forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) directly to internal services without transformation. The internal services are responsible for the validation of the received authentication data, for extracting the identity context (such as user ID, or other attributes), and making access control decisions based on it. When an internal service needs to communicate with another service, it just forwards the authentication data further downstream.
+In this pattern, the edge component forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) directly to internal services without transformation. The internal services are responsible for the verification of the received authentication data, for extracting the identity context (such as user ID, or other attributes), and making access control decisions based on it. When an internal service needs to communicate with another service, it just forwards the authentication data further downstream. The aforesaid verification may require contacting a Verifier, which depending on the authentication protocol and data used, could be an authorization server that issued the token or, for example, an OCSP responder to check the revocation status of a certificate.
 
 ![External Identity Propagation](../assets/External_Identity_Propagation.svg)
 
-The actual validation of the authentication data, represented by the dotted lines in steps 3 and 5 of the diagram above, depends on the type of authentication data used. For example, in the case of an opaque token, each service must call the appropriate identity provider endpoint to retrieve the associated data. If the token is self-descriptive, such as a JWT, the service needs the corresponding key material to verify its signature, and so on.
+As already said above, the actual verification of the authentication data, represented by the dotted lines in steps 3 and 5 of the diagram above, depends on the type of authentication data used. For example, in the case of an opaque token, each service must call the appropriate identity provider, respectively, authorization server endpoint to retrieve the associated data. If the token is self-descriptive, such as a [JWT](https://www.rfc-editor.org/rfc/rfc7519), the service needs the corresponding key material to verify its signature, and so on.
 
 #### Pros
 
@@ -292,21 +286,21 @@ The actual validation of the authentication data, represented by the dotted line
 
 #### Cons
 
-* **Tight coupling to external protocols:** Each microservice must understand and correctly handle potentially multiple types of external authentication data and formats (e.g., OAuth2, OpenID Connect, cookies). As a result, services must support protocol-specific logic (e.g., JWT parsing, OAuth2 token validation, cookie decoding) and are exposed to external semantics, expiration rules, and revocation mechanisms, increasing implementation complexity and brittleness. Changes to external identity providers or protocols typically break internal service behavior.
+* **Tight coupling to external protocols:** Each microservice must understand and correctly handle potentially multiple types of external authentication data and formats (e.g., [OAuth2](https://www.rfc-editor.org/rfc/rfc6749), [OIDC](https://openid.net/specs/openid-connect-core-1_0.html), cookies). As a result, services must support protocol-specific logic (e.g., [JWT](https://www.rfc-editor.org/rfc/rfc7519) parsing, OAuth2 token validation, cookie decoding) and are exposed to external semantics, expiration rules, and revocation mechanisms, increasing implementation complexity and brittleness. Changes to external identity providers or protocols typically break internal service behavior.
 * **Increased security risk:** If external authentication data is leaked, any internal service exposed, intentionally or not, can potentially be accessed directly using the leaked token.
-* **Unsuitable for zero-trust or multi-tenant environments:** Trust assumptions and lack of verifiability conflict with the security guarantees required in these environments.
-* **Privacy concern:** Because externally visible authentication data is reused internally, identifiers intended for internal use (e.g., subject IDs in JWTs) may become externally observable. This can violate privacy requirements by enabling cross-context linkability and may conflict with regulations such as the GDPR.
+* **Unsuitable for [Zero Trust](https://csrc.nist.gov/pubs/sp/800/207/final) or multi-tenant environments:** Trust assumptions and lack of verifiability conflict with the security guarantees required in these environments.
+* **Privacy concern:** Because externally visible authentication data is reused internally, identifiers intended for internal use (e.g., subject IDs in JWTs) may become externally observable. This can violate privacy requirements by enabling cross-context linkability and may conflict with regulations such as the GDPR or the CCPA.
 
 
 ### Simple Service-Level Identity Forwarding
 
-This pattern builds on the previous one but introduces a lightweight form of internal identity abstraction. While the edge component still forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) to internal services, each microservice no longer forwards this data unchanged. Instead, a microservice extracts the relevant identity information (e.g., user ID, roles, scopes) from the incoming request and creates a simplified representation of the identity, such as a plain JSON object, a self-signed JWT, or even a single value embedded in a query or path parameter, when making calls to downstream services.
+This pattern builds on the previous one but introduces a lightweight form of internal identity abstraction. While the edge component still forwards the externally received authentication data (e.g., an access token, ID token, session cookie, or certificate) to internal services, each microservice no longer forwards this data unchanged. Instead, a microservice extracts the relevant identity information (e.g., user ID, roles, scopes) from the incoming request and creates a simplified representation of the identity, such as a plain JSON object, a self-signed JWT, or even a single value embedded in a query or path parameter, when making calls to downstream services. As with the previous pattern, the verification of the initially received authentication data may require contacting a Verifier, which depending on the authentication protocol and data used, could be an authorization server that issued the token or, for example, an OCSP responder to check the revocation status of a certificate.
 
 ![Simple Service-Level Identity Forwarding](../assets/Simple_Service_Level_Identity_Forwarding.svg)
 
 This internal identity representation is not strongly cryptographically protected and often relies on implicit trust between services. As a result, downstream services must trust the integrity and correctness of the identity information forwarded by their upstream callers.
 
-The actual validation of the received authentication data, represented by the dotted line in steps 3 of the diagram above, depends on the type of authentication data used. For example, in the case of an opaque token, the service must call the appropriate identity provider endpoint to retrieve the associated data. If the token is self-descriptive, such as a JWT, the service needs the corresponding key material to verify its signature, and so on.
+As with the previous pattern and as also said above, the actual verification of the received authentication data, represented by the dotted line in steps 3 of the diagram above, depends on the type of authentication data used. For example, in the case of an opaque token, the service must call the appropriate identity provider, respectively, authorization server endpoint to retrieve the associated data. If the token is self-descriptive, such as a JWT, the service needs the corresponding key material to verify its signature, and so on.
 
 #### Pros
 
@@ -318,68 +312,72 @@ The actual validation of the received authentication data, represented by the do
 
 * **High trust requirement:** Downstream services must trust upstream callers to provide unaltered and accurate identity information and related data.
 * **Vulnerable to spoofing:** Lack of cryptographic protection makes identity data susceptible to tampering.
-* **Unsuitable for zero-trust or multi-tenant environments:** Trust assumptions and lack of verifiability conflict with the security guarantees required in these environments.
+* **Unsuitable for [Zero Trust](https://csrc.nist.gov/pubs/sp/800/207/final) or multi-tenant environments:** Trust assumptions and lack of verifiability conflict with the security guarantees required in these environments.
 * **Protocol complexity leakage:** If any internal service becomes externally exposed, support for full external authentication mechanisms is required to avoid API abuse.
-* **Privacy concern:** Because externally visible authentication data is reused internally, identifiers intended for internal use (e.g., subject IDs in JWTs) may become externally observable. This can violate privacy requirements by enabling cross-context linkability and may conflict with regulations such as the GDPR.
+* **Privacy concern:** Because externally visible authentication data is reused internally, identifiers intended for internal use (e.g., subject IDs in JWTs) may become externally observable. This can violate privacy requirements by enabling cross-context linkability and may conflict with regulations such as the GDPR or the CCPA.
 
-### Token Exchange-Based Identity Issuance
+### Token Exchange-Based Identity Propagation
 
-This pattern builds upon the previous pattern by introducing a trusted intermediary, an authorization server, through use of the OAuth2 Token Exchange protocol. A microservice that receives a request containing externally issued identity (e.g., an access token) exchanges it for a new, signed access token issued by the authorization server. This exchanged token is specifically scoped for a downstream internal service and is then propagated as part of the internal call.
+This pattern builds upon the previous pattern by introducing a trusted intermediary, an authorization server, through use of the [OAuth2 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693), or the new [OAuth2 Transaction Tokens (draft)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-transaction-tokens) protocol. A microservice that receives a request containing externally issued identity (e.g., an access token) exchanges it for a new, signed access token issued by the authorization server. This exchanged token is specifically scoped for a downstream internal service and is then propagated as part of the internal call. As with the previous patterns, the verification happens optionally with the help of a Verifier. The issuance of a new token is, however, the responsibility of the Secure Token Service (STS). The latter assumes the role of the Verifier for the verification of tokens it has issued. Both might be implemented by the same authorization server, but don't need to.
 
 ![Token Exchange-Based Identity Issuance](../assets/Token_Exchange_Based_Identity_Issuance.svg)
 
-Downstream services trust the token issued by the authorization server rather than the calling service. The pattern improves the trust model and strengthens identity guarantees, but is tightly coupled to the OAuth2 protocol family and its associated token types.
+Downstream services trust the token issued by the STS rather than the one used by the external client ("Some Client" in the diagram above). The pattern improves the trust model and strengthens identity guarantees, but is tightly coupled to the [OAuth2](https://www.rfc-editor.org/rfc/rfc6749) protocol family and its associated token types.
 
-The actual validation of the tokens, represented by the dotted lines in steps 3 and 6 of the diagram above, depends on the type of the token used. For example, in the case of an opaque token, each service must call the appropriate identity provider endpoint to retrieve the associated data. If the token is self-descriptive, such as a JWT, the service needs the corresponding key material to verify its signature.
+The actual verification of all involved tokens, represented by the dotted lines in steps 3 and 6 of the diagram above, depends on the type of the token used. For example, in the case of an opaque token, each service must call the appropriate identity provider endpoint to retrieve the associated data. If the token is self-descriptive, such as a JWT, the service needs the corresponding key material to verify its signature.
 
 #### Pros
 
-* **Improved trust model:** Downstream services do not need to trust upstream service implementations, only the authorization server.
-* **Cryptographically verifiable identity:** Issued tokens are signed by a trusted authorization server, offering strong integrity guarantees.
+* **Improved trust model:** Downstream services do not need to trust upstream service implementations, only the STS.
+* **Cryptographically verifiable identity:** Issued tokens are signed by an STS, offering strong integrity guarantees.
 * **Scoping and audience control:** Exchanged tokens can be restricted in scope and audience, reducing the risk of token misuse.
 
 #### Cons
 
-* **OAuth2-specific:** Relies on OAuth2 Token Exchange, limiting its applicability to systems using that protocol family for externally visible authentication data.
-* **Service-side complexity:** Application code must integrate with the authorization server, handle token exchange logic, and manage caching or retries.
+* **OAuth2-specific:** Relies on [OAuth2 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693), respectively, on [OAuth2 Transaction Tokens (draft)](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-transaction-tokens), limiting its applicability to systems using that protocol family for externally visible authentication data.
+* **Service-side complexity:** Application code must integrate with the STS to handle token exchange logic, and manage caching or retries.
 * **Latency overhead:** The token exchange process introduces additional network round-trips per request flow unless aggressively optimized.
-* **Operational dependency on the AS:** Introduces runtime dependency on the authorization server's availability and scalability.
+* **Operational dependency on the STS:** Introduces runtime dependency on the STS implementation availability and scalability.
 
 ### Protocol-Agnostic Identity Propagation
 
-The external request is authenticated at the system edge by a trusted component, which then generates a cryptographically signed (and/or encrypted) data structure representing the external entity’s identity and attributes (e.g., user ID, roles, permissions) - typically a self-contained, verifiable structure, such as a JWT or a proprietary signed format. This signed identity structure, hereafter referred to as a token, is propagated downstream to internal microservices. Internal services trust the signature from the edge issuer and use the token to make access control decisions.
+The external request is authenticated at the system edge by a trusted component, which then generates a cryptographically signed (and/or encrypted) data structure representing the external entity’s identities and attributes (e.g., user ID, roles, permissions) - typically a self-contained, verifiable structure, such as a JWT or a proprietary signed format. By doing that, the edge component assumes the role of a Secure Token Service (STS) This signed identity structure, hereafter referred to as a token, is propagated downstream to internal microservices. Internal services trust the signature from the edge issuer and use the token to make access control decisions.
 
 ![Protocol-Agnostic Identity Propagation](../assets/Protocol_Agnostic_Identity_Propagation.svg)
 
-Unlike in previous patterns, only the edge component is responsible for verifying externally provided authentication data with the identity provider that issued it. The specific verification process depends on the type and format of the authentication data, denoted by the dotted line in step 2. Further downstream, the microservices validate the signed token issued by the trusted edge component. Each microservice must have access to the corresponding verification key to validate the authenticity of this token. The corresponding verification steps are denoted by the dotted lines in steps 5 and 7.
+As with the previous pattern, the verification of the original authentication data may require contacting a Verifier. The implementation of the Verifier depends on the protocol and data format used — e.g. it could be an authorization server that issued a token, or it could be an OCSP responder, used to check the revocation status of a certificate. Unlike in previous patterns, only the edge component is responsible for that verification. The specific verification process depends on the aforesaid type and format of the authentication data, denoted by the dotted line in step 2. 
+
+Further downstream, the microservices validate the signed token issued by the trusted edge-component. Each microservice must have access to the corresponding verification key to validate the authenticity of this token. The corresponding verification steps are denoted by the dotted lines in steps 5 and 7. This is where the trusted component at the edge assumes the role of a Verifier.
+
+It’s worth noting that the edge-component roles shown in the diagram above — Edge Proxy, STS, and Verifier — may all be implemented within a single technical component, or split across multiple cooperating services. For example, a proxy might delegate the authentication data and token issuance related logic to another service via a mechanism typically named as *forward auth* or *external auth*. That service could implement the STS and the Verifier logic by itself, or, in turn, delegate token issuance to an existing authorization server using mechanisms such as the [OAuth2 Token Exchange](https://www.rfc-editor.org/rfc/rfc8693), as described in the previous pattern.
 
 #### Pros
 
 * **Cryptographic trust:** Signed tokens provide strong guarantees about the integrity and authenticity of the propagated identity.
 * **Decoupling from external authentication data and context:** Internal services neither handle external protocols nor need to differentiate whether requests originate from first- or third-party actors, simplifying their logic and trust assumptions.
 * **Rich identity context:** Allows inclusion of fine-grained identity and authorization metadata.
-* **Secure across trust boundaries:** Suitable for multi-tenant and zero-trust environments.
+* **Secure across trust boundaries:** Suitable for multi-tenant and [Zero Trust](https://csrc.nist.gov/pubs/sp/800/207/final) environments.
 * **Separation of external and internal identities:** Enables mapping externally known identifiers to distinct internal representations, preventing direct exposure of internal identifiers and thereby enhancing privacy by reducing correlation and tracking risks across domains.
 
 #### Cons
 
 * **Key management complexity:** Requires secure handling and rotation of signing keys to maintain trust.
 * **Token size overhead:** Signed tokens issued by the edge component may be large, increasing network overhead.
-* **Revocation challenges:** Once issued, tokens may be valid for many services until expiration, complicating immediate revocation. This can, however, be mitigated by issuing short-lived tokens and tailoring identity structures to individual downstream services.
+* **Revocation challenges:** Once issued, tokens may be valid for many services until expiration, complicating immediate revocation. This can, however, be mitigated by issuing short-lived tokens and tailoring subject structures to individual downstream services.
 * **Increased complexity at the edge:** The edge component must handle external authentication data verification as well as internal token generation and signing, making it a critical security component.
 
 
 ## Authorization Patterns
 
-While some basic access control can be applied to anonymous or unauthenticated subjects, most meaningful authorization requires a reliable understanding of the subject’s associated attributes. Having covered these foundational topics in previous sections, we now turn to how access control decisions are made and enforced across services in distributed systems.
+While some basic access control can be applied to anonymous or unauthenticated subjects, the most meaningful authorization requires a reliable understanding of the subject’s identities and associated attributes. Having covered these foundational topics in previous sections, we now turn to how access control decisions are made and enforced across services in distributed systems.
 
-The corresponding architectural approaches are described by authorization patterns. These patterns determine the placement and interaction of Policy Decision Points (PDPs) and Policy Enforcement Points (PEPs) within a system, as well as how subject attributes and object attributes flow between components, and where policies are stored and accessed.
+The corresponding architectural approaches can be described by authorization patterns. These patterns define where Policy Decision Points (PDPs), Policy Enforcement Points (PEPs), and Policy Information Points (PIPs) are placed within a system and how they interact. They also govern how subject and object identities, along with related attributes, flow between these components — and where policies are stored and accessed.
 
-Choosing the right pattern is critical, as it directly impacts the system’s security posture, scalability, maintainability, and trust boundaries. The following subsections explore the most common ones used in distributed architectures, outlining their trade-offs and typical use cases.
+Choosing the right patterns is critical, as it directly impacts the system’s security posture, performance, scalability, and maintainability. The following subsections explore the most common ones used in distributed architectures, outlining their trade-offs and typical use cases.
 
 ### Decentralized Service-Level Access Control
 
-In this pattern, most of the functional components from the reference architecture are implemented directly within each microservice. Even the Policy Information Points (PIPs) may be embedded into the service logic (e.g., via database or configuration entries) if the microservice is responsible for the all relevant attributes itself. However, this is rarely the case, and most microservices must integrate with other services to retrieve required attributes, treating those other services as external PIPs.
+In this pattern, most of the functional components from the reference architecture are implemented directly within each microservice. Even the Policy Information Points (PIPs) may be embedded into the service logic (e.g., via database or configuration entries) if the microservice is responsible for all relevant attributes itself. However, this is rarely the case, and most microservices must integrate with other services to retrieve required attributes, treating those other services as external PIPs.
 
 ![Decentralized Service-Level Access Control](../assets/Decentralized_Service_Level_Access_Control.svg)
 
@@ -538,9 +536,9 @@ The discussion of [Authorization Patterns](#authorization-patterns) might sugges
 
 ### Policy Characteristics
 
-Policy characteristics define how policies are authored, maintained, and updated, influencing their management and distribution. Two key dimensions, ownership and change rate, guide these processes, which are critical for operationalizing authorization systems.
+Policy characteristics define how policies are authored, maintained, and updated, influencing their management and distribution. Two key dimensions, **[ownership](#ownership)** and **[change rate](#change-rate)**, guide these processes, which are critical for operationalizing authorization systems.
 
-**Ownership**
+#### Ownership
 
 This dimension identifies who owns and maintains a policy, and often correlates with how composable or layered the policy needs to be.
 
@@ -548,7 +546,7 @@ This dimension identifies who owns and maintains a policy, and often correlates 
 * **Domain Level:** Policies shared across services within a business domain, often requiring coordination between teams. These policies may be abstracted and reused across multiple services, like a subscription domain enforces business rules about grace periods, usage limits, or billing thresholds that are referenced by billing, customer portal, and notification services.
 * **Central (Organization Level):** Policies governed by a central security, compliance, or platform team. These typically apply across domains or services and provide the foundation upon which more granular policies are built, like an organizational policy that defines acceptable data residency constraints or standard access conditions for administrative APIs.
 
-**Change Rate**
+#### Change Rate
 
 This dimension describes how frequently a policy is expected to change, which has implications for where and how policies should be reviewed, deployed, and versioned.
 
@@ -558,11 +556,11 @@ This dimension describes how frequently a policy is expected to change, which ha
 
 ### Policy Distribution Strategies
 
-Distributing policies to PDPs ensures they are available for evaluation in microservice architectures. This subsection outlines two primary strategies, pre-loaded policies and embedded policies, each with trade-offs affecting performance, scalability, and policy freshness. The choice mainly depends on the Policy Characteristics.
+Distributing policies to PDPs ensures they are available for evaluation in microservice architectures. This subsection outlines two primary strategies, **[pre-loaded policies](#pre-loaded-policies)** and **[embedded policies](#embedded-policies)**, each with trade-offs affecting performance, scalability, and policy freshness. The choice mainly depends on the Policy Characteristics.
 
 #### Pre-Loaded Policies
 
-Policies are proactively sent to the PDP and stored locally for evaluation, often alongside pre-loaded data, as described in Pre-Loaded Data.
+Policies are proactively sent to the PDP and stored locally for evaluation, often alongside pre-loaded data, as described in [Pre-Loaded Data](#pre-loaded-data).
 
 **Pros:**
 
@@ -573,12 +571,10 @@ Policies are proactively sent to the PDP and stored locally for evaluation, ofte
 * Requires robust synchronization to keep policies consistent with the repository.
 * Adds complexity to distribution pipelines for real-time or near-real-time updates.
 
-See the Pre-Loaded Data diagrams for embedded and external PDP setups, which include policy distribution via components like the Distributor, Aggregator, Policy Aggregator, and Data Aggregator. These components manage policy loading and updates alongside data, ensuring PDPs are configured with the latest policies.
-
 
 #### Embedded Policies
 
-Policies are embedded in the PDP’s static configuration and cannot be updated without restarting or redeploying the PDP. This strategy is ideal for Low change rate policies.
+Policies are embedded in the PDP (e.g. as code, or as static configuration) and cannot be updated without restarting or redeploying the PDP. This strategy is ideal for Low change rate policies.
 
 **Pros:**
 
@@ -592,15 +588,15 @@ Policies are embedded in the PDP’s static configuration and cannot be updated 
 
 ### Data Characteristics
 
-Selecting an authorization pattern requires understanding the properties of the data used for access decisions. This subsection defines two key dimensions, locality and cardinality, that characterize data and guide the choice of pattern and the data distribution strategy.
+Selecting an authorization pattern requires understanding the properties of the data used for access decisions. This subsection defines two key dimensions, **[locality](#locality)** and **[cardinality](#locality)**, that characterize data and guide the choice of pattern and the data distribution strategy.
 
-**Locality**
+#### Locality
 
 * **Microservice-Local Data:** Only relevant within a single microservice, not reused outside. For example, a user’s sorting preference for a list view, per-service feature toggles, or rate-limiting counters maintained per client in a specific service.
 * **Domain-Level Data:** Data shared across multiple services within the same bounded context or domain. Examples include ownership metadata of documents in a document management domain, customer account status (e.g., frozen, active, under review) used by both billing and support services, or time-based availability windows for booking or scheduling services.
 * **Organization-Level Data:** Relevant across domains or the entire system, such as regulatory classification of data (e.g., “EU personal data”), tenant-level subscription tier or plan.
 
-**Cardinality**
+#### Cardinality
 
 * **High Cardinality Data:** Data that is highly specific to individual requests or subjects and tends to change frequently, like a real-time risk score computed per authentication attempt or the time of the last successful MFA challenge.
 * **Medium Cardinality Data:** Data that applies to a set of subjects or resources and has moderate variability, like project identifiers tied to multiple resources
@@ -642,44 +638,6 @@ Data is proactively sent to the PDP in advance, and stored in memory or a local 
 * Increases memory or storage demands on the PDP, which can be problematic for high-cardinality data or large datasets.
 * Adds complexity to data pipelines, as mechanisms must be built to push updates to the PDP in real-time or near-real-time.
 
-The following diagrams illustrate typical setups for distributing data and policies to PDP instances in embedded and external PDP approaches.
-
-![Embedded PDP Data & Policy Distribution](../assets/Embedded_PDP_Data_Policy_Distribution.svg)
-
-In addition to components described in the Authorization Reference Architecture, this diagram introduces three components:
-
-* **Configuration Repository:** Stores configurations for each PDP instance, specifying policy sources, initial data sets from PIPs, and other settings.
-* **Distributor:** Manages the data and policy distribution control plane. It reads configurations from the configuration repository, distributes them to aggregators, and forwards updates.
-* **Aggregator:** Connects to the distributor, configures its assigned PDP with policies and initial data, and applies data or policy updates.
-
-1. The distributor starts, reads configurations from the configuration repository, and awaits aggregator connections. 
-2. An aggregator starts, connects to the distributor, and receives its configuration. 
-3. The aggregator pulls policies from the policy repository as specified. 
-4. It fetches initial data sets from designated PIPs. 
-5. It configures the PDP with the retrieved policies and data. 
-6. When a PEP receives an external request, it queries the PDP for a decision, which may update microservice-managed data. 
-7. Events reflecting updates are sent to the event distribution system and received by the distributor. 
-8. The distributor forwards events to relevant aggregators. 
-9. Aggregators update the PDP’s data sets accordingly.
-
-![External PDP Data & Policy Distribution](../assets/External_PDP_Data_Policy_Distribution.svg)
-
-This diagram resembles the embedded setup but reflects a PDP shared by multiple microservices, introducing:
-
-* **Configuration Repository:** Stores the PDP’s configuration, including policy sources and initial data sets sources (PIPs).
-* **Policy Aggregator:** Loads policies into the PDP and applies policy updates.
-* **Data Aggregator:** Retrieves initial data sets from PIPs and updates the PDP’s data.
-
-1. The policy aggregator starts and reads its configuration from the repository.
-2. It loads and optionally merges policies from the policy repository.
-3. It applies the policies to the PDP.
-4. The data aggregator starts and reads its configuration from the repository.
-5. It retrieves initial data sets from designated PIPs.
-6. It loads the data into the PDP.
-7. When a PEP receives an external request, it queries the PDP for a decision, which may update microservice-managed data.
-8. Events reflecting updates are sent to the event distribution system and received by the data aggregator.
-9. The data aggregator updates the PDP’s data sets.
-
 #### Request-Time Data Injection
 
 Required data is included in the "decision" request sent to the PDP by the PEP. This approach is also known as inline data passing.
@@ -714,12 +672,59 @@ This subsection maps the locality and cardinality dimensions to recommended auth
   * **Data Distribution Strategy:** Request-time data injection is essential, as high-cardinality data (e.g., per-user risk scores) cannot be fully preloaded due to PDP memory or storage limits. The PEP collects attributes from PIPs and includes them in the decision request.
   * **Considerations:** In centralized models, microservices (as PEPs) handle PIP integration, increasing complexity. In edge-level models, the edge layer manages data enrichment, simplifying microservices but requiring robust edge configuration. Request-time injection ensures scalability but demands reliable PEP data collection.
 
+## Practical Considerations & Recommendations
 
-## Authentication and Authorization Integration
+### Data and Policy Distribution in Practice
+
+See the Pre-Loaded Data diagrams for embedded and external PDP setups, which include policy distribution via components like the Distributor, Aggregator, Policy Aggregator, and Data Aggregator. These components manage policy loading and updates alongside data, ensuring PDPs are configured with the latest policies.
+
+The following diagrams illustrate typical setups for distributing data and policies to PDP instances in embedded and external PDP approaches.
+
+![Embedded PDP Data & Policy Distribution](../assets/Embedded_PDP_Data_Policy_Distribution.svg)
+
+In addition to components described in the Authorization Reference Architecture, this diagram introduces three components:
+
+* **Configuration Repository:** Stores configurations for each PDP instance, specifying policy sources, initial data sets from PIPs, and other settings.
+* **Distributor:** Manages the data and policy distribution control plane. It reads configurations from the configuration repository, distributes them to aggregators, and forwards updates.
+* **Aggregator:** Connects to the distributor, configures its assigned PDP with policies and initial data, and applies data or policy updates.
+
+1. The distributor starts, reads configurations from the configuration repository, and awaits aggregator connections.
+2. An aggregator starts, connects to the distributor, and receives its configuration.
+3. The aggregator pulls policies from the policy repository as specified.
+4. It fetches initial data sets from designated PIPs.
+5. It configures the PDP with the retrieved policies and data.
+6. When a PEP receives an external request, it queries the PDP for a decision, which may update microservice-managed data.
+7. Events reflecting updates are sent to the event distribution system and received by the distributor.
+8. The distributor forwards events to relevant aggregators.
+9. Aggregators update the PDP’s data sets accordingly.
+
+![External PDP Data & Policy Distribution](../assets/External_PDP_Data_Policy_Distribution.svg)
+
+This diagram resembles the embedded setup but reflects a PDP shared by multiple microservices, introducing:
+
+* **Configuration Repository:** Stores the PDP’s configuration, including policy sources and initial data sets sources (PIPs).
+* **Policy Aggregator:** Loads policies into the PDP and applies policy updates.
+* **Data Aggregator:** Retrieves initial data sets from PIPs and updates the PDP’s data.
+
+1. The policy aggregator starts and reads its configuration from the repository.
+2. It loads and optionally merges policies from the policy repository.
+3. It applies the policies to the PDP.
+4. The data aggregator starts and reads its configuration from the repository.
+5. It retrieves initial data sets from designated PIPs.
+6. It loads the data into the PDP.
+7. When a PEP receives an external request, it queries the PDP for a decision, which may update microservice-managed data.
+8. Events reflecting updates are sent to the event distribution system and received by the data aggregator.
+9. The data aggregator updates the PDP’s data sets.
+
+### Authorization Patters Implications on Authentication Patterns
 
 TODO: address the interplay between authentication and authorization patterns, explaining how authentication mechanisms (e.g., edge-level vs. service-level) influence authorization choices and vice versa
 
-## Common Pitfalls and Best Practices
+### Mapping Product Features
+
+How specific OSS projects map to these architectural setups (e.g., how OPAL + OPA can realize the embedded PDP model with event-based updates, how heimdall can be used to implement reliable edge-level authn&z approaches, ...)
+
+### Common Pitfalls and Best Practices
 
 TODO: guidance on avoiding common mistakes (e.g., "accept by default" behaviors, misconfigured proxies) and implementing best practices for secure authentication and authorization
 

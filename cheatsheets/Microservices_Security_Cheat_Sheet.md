@@ -392,7 +392,7 @@ When adopting this approach, the following trade-offs should be considered:
 * **Familiar development model**: Developers can use the same language and tools they already know.
 * **Framework support**: Many libraries and frameworks exist for many languages to reduce boilerplate and simplify integration.
 * **Rapid prototyping**: Policy logic is implemented directly in code, enabling quick experimentation and iteration.
-* **Team autonomy**: Fits well with domain-driven design and independent team ownership; each team can choose its approach.
+* **Team autonomy**: Fits well with independent team ownership; each team can choose its approach.
 * **High performance**: Policy evaluation is done in-memory within the microservice.
 * **Full context awareness**: The service has access to runtime data, business logic, and domain models, enabling fine-grained, context-rich and nuanced decisions.
 * **Failure isolation**: If all required attributes are available locally or cached, failures in external systems do not impact decision-making.

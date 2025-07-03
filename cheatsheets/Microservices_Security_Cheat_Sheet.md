@@ -556,7 +556,7 @@ This dimension describes how frequently a policy is expected to change, which ha
 
 ### Policy Distribution Strategies
 
-Distributing policies to PDPs ensures they are available for evaluation in microservice architectures. This subsection outlines two primary strategies, **[pre-loaded policies](#pre-loaded-policies)** and **[embedded policies](#embedded-policies)**, each with trade-offs affecting performance, scalability, and policy freshness. The choice mainly depends on the Policy Characteristics.
+Distributing policies to PDPs ensures they are available for evaluation in microservice architectures. This subsection outlines two primary strategies, **[pre-loaded policies](#pre-loaded-policies)** and **[embedded policies](#embedded-policies)**, each with trade-offs affecting performance, scalability, and policy freshness. The choice mainly depends on the [Policy Characteristics](#policycharacteristics) and determines how quickly and reliably policy changes can be rolled out to production systems. It also influences operational workflows — such as testing, rollback, and emergency overrides — and interacts with the system's requirements for agility and stability.
 
 #### Pre-Loaded Policies
 
@@ -660,16 +660,16 @@ Required data is passed directly in the request from the PEP to the PDP — an a
 This subsection maps the locality and cardinality dimensions to recommended authorization patterns and data distribution strategies, providing a decision framework for microservice architectures. The mapping considers the trade-offs of each pattern and outlines the capabilities of PEPs and PDPs.
 
 * **Microservice-Local Data**
-  * **Recommended Pattern:** Decentralized Service-Level Access Control or Centralized Service-Level Access Control with Embedded PDP. These patterns are ideal regardless of cardinality, as the data’s isolated scope mitigates drawbacks like auditability or scattered logic.
-  * **Data Distribution Strategy:** Request-time data injection is preferred, as the microservice (acting as the PEP) has direct access to local data and can include it in decision requests to the PDP.
+  * **Recommended Pattern:** [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) or [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp). These patterns are ideal regardless of cardinality, as the data’s isolated scope mitigates drawbacks like auditability or scattered logic.
+  * **Data Distribution Strategy:** [Request-time data injection](#request-time-data-injection) is preferred, as the microservice (acting as the PEP) has direct access to local data and can include it in decision requests to the PDP.
   * **Considerations:** Both recommended patterns offer simplicity and autonomy, while embedded PDPs provide governance without external dependencies in addition. Request-time injection keeps complexity low, as no external PIPs are involved.
 * **Domain-Level Data and Organization-Level Data with Medium or Low Cardinality**
-  * **Recommended Pattern:** Centralized Service-Level Access Control with Embedded or External PDP or Modern Edge-Level Authorization. These patterns ensure consistent enforcement and auditability across shared data scopes.
-  * **Data Distribution Strategy:** On-demand data fetch or preloaded data are suitable. On-demand data fetch ensures freshness for moderately dynamic data, while preloaded data optimizes performance for static or low-cardinality data by storing it locally in the PDP.
+  * **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns ensure consistent enforcement and auditability across shared data scopes.
+  * **Data Distribution Strategy:** [On-demand data fetch](#on-demand-data-fetch) or [preloaded data](#pre-loaded-data) are suitable. Both approaches ensure freshness of data and optimize performance by storing it locally in the PDP.
   * **Considerations:** Embedded PDPs reduce latency, while external PDPs, such as those implementing ReBAC approaches, support advanced capabilities, such as before-the-fact-audit. Pre-Loaded data requires synchronization pipelines, and on-demand fetch needs robust PIP availability handling.
 * **Domain-Level Data and Organization-Level Data with High Cardinality**
-  * **Recommended Pattern:** Centralized Service-Level Access Control with Embedded or External PDP or Modern Edge-Level Authorization. These patterns handle complex, shared data while supporting dynamic attribute inclusion.
-  * **Data Distribution Strategy:** Request-time data injection is essential, as high-cardinality data (e.g., per-user risk scores) cannot be fully preloaded due to PDP memory or storage limits. The PEP collects attributes from PIPs and includes them in the decision request.
+  * **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns handle complex, shared data while supporting dynamic attribute inclusion.
+  * **Data Distribution Strategy:** [Request-time data injection](#request-time-data-injection) is essential, as high-cardinality data (e.g., per-user risk scores) cannot be fully preloaded due to PDP memory or storage limits, so the PEP must collect attributes from PIPs and include them in the decision request.
   * **Considerations:** In centralized models, microservices (as PEPs) handle PIP integration, increasing complexity. In edge-level models, the edge layer manages data enrichment, simplifying microservices but requiring robust edge configuration. Request-time injection ensures scalability but demands reliable PEP data collection.
 
 ## Practical Considerations & Recommendations

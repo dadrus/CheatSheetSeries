@@ -441,7 +441,7 @@ Although this pattern significantly improves maintainability and consistency of 
 * **Coverage gaps:** Some frameworks expose endpoints by default, often without offering hooks for policy enforcement. Teams may also just forget to add the required logic to some endpoints. Combined with poor or misleading documentation, this can result in unintentionally exposed functionality and missed access control. Common examples include health and metrics endpoints (e.g., Spring Boot Actuator), auto-generated documentation routes (e.g., FastAPI or OpenAPI UIs), or static routes in frameworks like e.g. Express.js.
 * **Incomplete enforcement observability:** While policy decisions are consistently logged, there’s often no visibility into whether those decisions were correctly enforced across all code paths. Missing instrumentation or scattered enforcement logic makes it difficult to validate effective protection, investigate incidents, analyze system-wide access patterns or detect abuse.
 
-Due to these remaining gaps, “accept by default” behaviors remain a real risk, leading to broken access control vulnerabilities.
+Due to these remaining gaps, "accept by default" behaviors remain a real risk, leading to broken access control vulnerabilities.
 
 ### Centralized Service-Level Access Control with external PDP
 
@@ -473,12 +473,12 @@ Although this pattern improves observability and supports a broader range of acc
 * **Coverage gaps:** There is no guarantee that every service or endpoint consistently integrates with the central PDP. Some frameworks expose endpoints by default, often without offering hooks for policy enforcement. Teams may also just forget to add the required logic to some endpoints. Combined with poor or misleading documentation, this can result in unintentionally exposed functionality and missed access control.
 * **Failure impact:** If the external PDP is unavailable or slow, service responsiveness may degrade or fail entirely unless fallbacks are in place.
 
-As with the previous patterns, some gaps remain - particularly around enforcement coverage and observability - which can result in “accept by default” behaviors and ultimately lead to broken access control vulnerabilities.
+As with the previous patterns, some gaps remain — particularly around enforcement coverage and observability — which can result in "accept by default" behaviors and ultimately lead to broken access control vulnerabilities.
 
 
 ### Edge-Level Authorization (Classic)
 
-This pattern aims to address several shortcomings of Decentralized Service-Level Access Control, particularly inconsistent enforcement, policy sprawl, and limited observability. Instead of embedding authorization logic within each service, access control is moved to the system’s perimeter—typically implemented via API gateways, ingress controllers, or reverse proxies.
+This pattern aims to address several shortcomings of service-level access control patterns, particularly inconsistent enforcement, policy sprawl, and limited observability. Instead of tying authorization logic on the level of each service, access control is moved to the system’s perimeter — typically implemented via API gateways, ingress controllers, or reverse proxies.
 
 ![Edge-Level Authorization (Classic)](../assets/Edge_Level_Authorization_Classic.svg)
 
@@ -503,7 +503,7 @@ Since all external traffic flows through the edge component, this is the first p
 
 ### Edge-Level Authorization (Modern)
 
-This pattern evolves the classic edge-level authorization approach by combining multiple established patterns, such as centralized PDPs, identity propagation mechanisms, and contextual data injection, to overcome key limitations of earlier edge-centric models.
+This pattern evolves the classic edge-level authorization approach by combining multiple established patterns, such as centralized PDPs, identity propagation mechanisms, and contextual data injection, to overcome its key limitations.
 
 While enforcement still occurs at the perimeter via proxies or gateways, this approach allows per-service customization through service-specific rules — declarative definitions of how identity and context are gathered, how authorization is performed, and how decisions are propagated — forming explicit *authorization contracts*. These contracts manifest as structured, signed data (e.g., JWT claims or enriched signed headers) that the edge proxies or gateways relay to downstream services. This explicit propagation of authorization context ensures that internal service-to-service calls rely on a trusted, verifiable authorization boundary, addressing common concerns around enforcement blind spots and defense-in-depth violations typically associated with edge-only models. By making authorization an explicit API-level contract, teams can confidently decentralize enforcement without creating single points of failure or gaps in access control.
 
@@ -525,7 +525,7 @@ Instead of embedding rigid policy logic or centralizing control in infrastructur
 
 #### Cons
 
-* **Performance overhead:** Similar to the classic pattern, delegating authorization to an external PDP introduces network latency and dependency on additional services.
+* **Performance overhead:** Similar to the classic pattern, delegating authorization to an external PDP introduces network latency and dependency on additional services. However, this can be mitigated by embedding the PDP directly into the edge-level proxy or gateway.
 * **Policy distribution complexity:** Ensuring the correct version of a policy is evaluated in context of the specific service version requires additional coordination. This mainly depends on PDP capabilities and tooling.
 * **Operational complexity:** While contracts empower teams with autonomy, effective governance requires clear guidelines and automated validation tools to prevent misconfiguration or misuse.
 * **Dependency sprawl:** Accessing external PIPs or custom APIs adds more components to the system. Without careful management through standardized logging and robust tooling, this can lead to delays or inconsistent visibility.

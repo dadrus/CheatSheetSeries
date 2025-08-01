@@ -4,26 +4,27 @@
 
 The microservice architecture is increasingly used to design and implement application systems in both cloud-based and on-premise environments, particularly for high-scale applications and services. However, it introduces a range of security challenges that must be addressed during both the design and implementation phases.
 
-Two of the most critical security concerns are authentication and authorization. As such, it is essential for application security architects to understand and correctly apply architectural patterns that implement these concerns in microservices-based systems.
+Two of the most critical security concerns are authentication and authorization. It is therefore essential for everyone involved in designing, developing, and operating microservices-based systems to understand and correctly apply architectural patterns that address these concerns.
 
 The goal of this cheat sheet is to describe common authentication and authorization patterns, highlight their trade-offs, and provide actionable recommendations. It also outlines common pitfalls to avoid when applying these patterns in practice.
 
 ## Authorization Reference Architecture
 
-To lay the foundation for the patterns described in this cheat sheet, this section introduces the general building blocks of an authorization system, based on [NIST SP 800-162](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-162.pdf). While that standard focuses on Attribute-Based Access Control (ABAC), the architectural components it defines are relevant to nearly any access control system.
+To lay the foundation for the patterns described in this cheat sheet, this section introduces the general building blocks of an authorization system, based on [NIST SP 800-162](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-162.pdf). While that standard focuses on Attribute-Based Access Control (ABAC), the conceptual roles it defines are relevant to nearly any access control system.
 
 ![Authorization Reference Architecture](../assets/Authorization_Reference_Architecture.svg)
 
-These functional components are:
+These roles are:
 
-* **Subject:** An active entity that attempts to perform an action on an Object.
-* **Object:** A passive entity that is the target of an action attempted by the Subject.
-* **Policy Enforcement Point (PEP):** Intercepts requests and enforces the access decision provided by the PDP.
-* **Policy Decision Point (PDP):** Evaluates policies and computes authorization decisions based on the access request and relevant attributes.
+* **Subject:** An active entity (e.g., a user, application, or device) that attempts to perform an action on an Object.
+* **Object:** A passive entity (e.g., a file, an insurance record, or a blog article), that is the target of an action attempted by the Subject. 
+* **Policy:** A set of rules that define who is allowed to do what under which conditions — for example, "Managers can approve expenses under $1000", or "Users can access documents they own". Policies are evaluated at runtime using attributes of the user, the resource, and the context (such as time, or location).
+* **Policy Enforcement Point (PEP):** The component that intercepts a request and enforces the outcome of an authorization decision, allowing or denying the request.
+* **Policy Decision Point (PDP):** Evaluates policies and computes authorization decisions based on the incoming request and available data.
 * **Policy Information Point (PIP):** Supplies attribute data or contextual information that the PDP requires to evaluate a policy.
-* **Policy Administration Point (PAP):** Manages access control policies by providing tools for authoring, testing, and maintaining them.
+* **Policy Administration Point (PAP):** Allows management of access control policies by providing tools for authoring, testing, and maintaining them.
 
-### A Story to Ground the Concepts
+## A Story to Ground the Concepts
 
 Imagine Alice wants to read an article on her favorite blog platform. In this story:
 
@@ -32,46 +33,67 @@ Imagine Alice wants to read an article on her favorite blog platform. In this st
 * The action ("read") is what she wants to perform.
 * Her browser sends a request on her behalf to the platform’s backend services.
 
-Now, let’s break down what happens:
+Let’s break down what happens step by step:
 
-Each time Alice interacts with the platform - by clicking a link, submitting a form, or opening a page - a request is made to one or more backend services. These services must decide: *Can Alice do this?* and more subtly: *What exactly is Alice allowed to do in this context?*
+Each time Alice interacts with the platform — by clicking a link, submitting a form, or opening a page — a request is made to one or more backend services. These services must decide: *Can Alice do this?* and more subtly: *What exactly is Alice allowed to do in this context?*
 
-That decision process starts with the **Policy Enforcement Point (PEP)**. Think of the PEP as a gatekeeper - it sees the request and knows it must enforce some kind of access control. But it doesn't contain the logic to decide **what’s allowed**. Instead, it delegates that to the **Policy Decision Point (PDP)**.
+That decision process starts with the **Policy Enforcement Point (PEP)**. Think of the PEP as a gatekeeper — it sees the request and knows it must enforce some kind of access control. But it doesn't contain the logic to decide **what’s allowed**. Instead, it delegates that to the **Policy Decision Point (PDP)**.
 
-The **PDP** evaluates the request against a set of policies. These policies might include conditions like:
+The PDP evaluates the request against a set of policies. These policies might include conditions like:
 
 * Alice must be logged in.
 * Alice must have an active subscription.
 * Alice can only read the full article if her subscription level is "Premium".
 
-To perform this evaluation, the PDP often needs more information than what’s in Alice’s request. For example, it may need to know:
+To perform this evaluation, the PDP often needs more information than what’s in Alice’s request. This is where the **Policy Information Point (PIP)** comes in. In this case, one PIP is involved: a user management service that provides Alice’s subscription information. This PIP supplies the PDP with the information needed to evaluate the aforesaid policies.
 
-* Alice’s subscription status,
-* The article’s visibility flags.
-* ...
-
-This is where the **Policy Information Point (PIP)** comes in. The PIP retrieves additional attributes from user directories, databases, metadata services, etc., and supplies them to the PDP as needed.
-
-But here’s where a crucial detail often gets missed: the PDP doesn't always answer a **closed question** like “yes” or “no”. In many cases, the PDP may answer **open questions** with answers like:
+But here’s where a crucial detail often gets missed: the PDP doesn't always answer a **closed question** like "yes" or "no". In many cases, the PDP may answer **open questions** with answers like:
 
 * Alice can read the article, but only the excerpt.
-* Alice can read the full article if her subscription is Premium or if the article is marked as public.
+* Alice can read the full article if her subscription is "Premium" or if the article is marked as public.
 * Alice can read up to three full articles per day on a free plan.
-* Alice can read that set of articles
+* Alice can read that particular set of articles
 
-In these cases, the PDP returns not just a binary decision, but a decision along with **obligations, conditions, or structured attributes** that describe *how* access is permitted, such as what parts of a resource are visible, or what usage limits apply.
+In these cases, the PDP returns a decision along with additional access context information that describes *how* access is permitted, and which additional actions to perform. This might include details like which parts of a resource are visible or what usage limits apply. For example, if Alice is on a free plan and has already read three full articles today, the PDP might return a "permit" decision along with structured attributes specifying that only the excerpt of the requested article should be shown.
 
-The PEP then takes that decision and enforces it, meaning the request is either allowed to proceed to the protected resource or is blocked. Enforcement is binary: permit or deny. If the decision includes additional data, it is up to downstream components, such as business logic or resource handlers to interpret and apply those, for example, by shaping the response or limiting available actions.
+The PEP then takes that decision and enforces it, meaning the request is either allowed to proceed to the protected resource or is blocked. Enforcement is binary: permit or deny. But if the decision includes additional data — like an instruction to show only the excerpt — it’s up to downstream components to interpret and act on that. In Alice’s case, this means shaping the response to include only the article excerpt.
 
-However, there is one essential prerequisite: the system must know who the subject is — that is, it must verify the subject’s identity, confirming that Alice is indeed Alice. This verification process is the domain of authentication. Without it, the PEP has no basis on which to enforce access decisions. Authentication is therefore foundational, which is why we begin by examining authentication patterns and approaches.
+There is, however, one essential prerequisite: the system must know who the subject is — that is, it must verify the subject’s identity, confirming that Alice is indeed Alice. This verification process is the domain of authentication. Without it, the PEP has no basis on which to enforce access decisions. Authentication is therefore foundational, which is why we begin by examining authentication patterns and approaches. But before doing that, there is a need to explore a few essential concepts that provide context for understanding the broader landscape of authentication and authorization.
+
+## Policy Representations and Lifecycle
+
+As described above, authorization policies define who can do what under which conditions. Depending on how they're represented and integrated into a system, their impact on development, operations, and security can vary widely. In practice, policies are implemented in two main ways:
+
+* **Hardcoded policies:** These are embedded directly in application code — for example, conditional checks like `if user.role == 'admin'`. In this model, the PDP is implicit within the application logic, and the PEP might be an interceptor, handler, or a simple conditional branch.
+* **Declarative policies:** These are defined outside the application code in structured formats, evaluated by a dedicated PDP. Examples include policies written in [Rego](https://www.openpolicyagent.org/docs/policy-language), [Cedar](https://www.cedarpolicy.com/en), [XACML](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=xacml), or other authorization languages. This model clearly separates the enforcement logic (PEP) from decision logic (PDP) and externalizes policy definition.
+
+Declarative policies allow the policy lifecycle to be managed independently of the application lifecycle. This separation has several operational and organizational benefits:
+
+* Access policies reflect business rules, regulatory obligations, or security requirements — and while these are also drivers for application features, their rate of change, ownership, and scope typically differ:
+  * Regulatory updates may require immediate changes to access conditions without modifying the underlying feature set.
+  * Security incident response might require temporary or permanent changes to access controls outside a normal release cycle.
+  * Declarative policies empower non-developers to request or implement access changes (e.g., enabling partner access during a pilot program) without waiting for a full development cycle or redeployment, especially when the changes don't require altering core application logic.
+  * Policies may vary in scope or depth, with some governing access across multiple services or applications, while others are more narrowly focused.
+
+  When access policies are tightly coupled to code, any change — no matter how urgent or isolated — requires a code change, test cycle, and deployment. Separating policy from application code allows organizations to react faster and more safely to changes, without compromising the integrity of the software development process.
+
+* Policies are high-stakes — access control bugs are different from feature bugs. They tend to be catastrophic, not just annoying:
+
+  * Granting access when you shouldn't can lead to **data breaches**
+  * Revoking access incorrectly can **break business** processes
+
+  Externalized policies are easier to review, audit, and test — just like any other configuration artifact. They can also be subject to staged rollouts and automated validation. Enabling and governing these capabilities is the responsibility of the **Policy Administration Point (PAP)**, which orchestrates the authoring, validation, and controlled distribution of policies. Policies themselves are also subject to access controls. In that sense, the PAP also incorporates aspects of the PEP and the PDP — but is focused entirely on the policy lifecycle rather than on business-related decisions.
+
+* Declarative policies also enable *before-the-fact audit* — the ability to answer "Who currently has access to this object/resource?" without needing to wait for a request to happen or instrument code. This reverse-query capability is essential for governance, compliance, and risk assessments, and is practically impossible when policies are hardcoded and scattered across multiple applications.
 
 
-### First-Party vs. Third-Party
+## First-Party vs. Third-Party
 
-Before we look closer at authentication patterns, there's a crucial differentiation one has to be aware of: Is the context we're in a First-Party, or a Third-Party context:
+A key distinction in access control scenarios lies in **on whose behalf** the subject is acting. This determines whether we’re dealing with a **first-party** or a **third-party** context.
 
-* **First Party:** When the subject (given the story above - Alice) accesses objects (like the article) on their own behalf. The subject may own the object (e.g., Alice editing her own article) or not (e.g., Alice reading someone else's article).
-* **Third Party:** When a subject acts on behalf of another entity to access objects owned by that entity. For example, imagine a service integrated with the blog platform (from the example section) to check grammar and suggest improvements for articles. Alice delegates access to this third-party service, becoming the PDP. The third-party service acts as the subject, the article is still the object, and the blog API is the PEP enforcing access. 
+In a **first-party** scenario, the subject acts on their own behalf — for instance, when Alice reads or edits articles in her account. In a **third-party** scenario, the subject is acting on behalf of someone else — like when Alice delegates access to an external service that analyzes her articles. The third-party service becomes the subject, while Alice remains the principal authorizing access.
+
+This distinction has important implications for how delegation is modeled, how trust is established, and what guarantees are needed from the involved systems.
 
 ![First Party vs Third Party](../assets/First_vs_Third_Party_Context.svg)
 
@@ -81,20 +103,22 @@ While exploring these contexts, it's important to understand that different prot
 
 What all these protocols have in common is that they define mechanisms to authenticate the involved parties. However, the details of how this authentication is performed - e.g., through passwords, or by making use of other factors - are not covered in this cheat sheet. Likewise, the protocols themselves are not the focus here; there are excellent existing cheat sheets for that purpose (which we will reference). Instead, this document emphasizes patterns: how different approaches to authentication and authorization are architecturally applied, and what implications they carry.
 
-### On Subjects, Principals and Identities
+## On Subjects, Principals and Identities
 
 Another important topic to understand before we explore authentication and authorization patterns is the concept of a **subject**. According to the reference architecture and the story above, a subject is an active entity that carries an identity and is the target of authentication.
 
 However, in most real-world systems, authentication is not limited to a single type of active entity. Instead, there are often multiple forms of identity involved, each representing a different kind of actor or context:
 
-* **End-users:** Human users interacting with a system via a browser or mobile app.
+* **End-users:** Human users interacting with a system via e.g. a browser, or a mobile app.
 * **Devices:** The user’s device (e.g., smartphone, laptop, or IoT hardware), which may have its own identity.
 * **External clients:** Applications or scripts accessing an API on behalf of a user or system.
 * **Internal workloads:** Services or components within a distributed system communicating with each other.
 
 All of these are **principals** — identifiable entities that can be authenticated and authorized. A **subject**, in turn, may consist of one or more such principals. For example, a request from a mobile app may involve both the authenticated user and the device they’re using. In a service-to-service call, the subject might be the internal service identity, optionally carrying along delegated user context.
 
-Understanding subjects in this compositional way is key to interpreting the patterns described in this cheat sheet. While many patterns focus on a single principal type (e.g., user or service), they often support **multi-principal subjects** through identity propagation and proper orchestration of authentication mechanisms.
+Importantly, the definition of a subject is often shaped by the perspective of the PDP that evaluates the request. Each PDP — or even each policy — may view the subject differently, based on what attributes or entities are relevant for its decision-making. One policy may only care about the identity of the user. Another may treat the combination of user and device as the subject. A third may include the client application or network context as additional principals. In this sense, a subject is not a fixed notion, but a context-dependent composition of principals as seen by the evaluating component.
+
+Understanding subjects in this compositional and context-sensitive way is key to interpreting the patterns described in this cheat sheet. While many patterns focus on a single principal type (e.g., user or service), they often support **multi-principal subjects** through identity propagation and proper orchestration of authentication mechanisms.
 
 The last remaining concept to cover is **identity**. An identity is a collection of attributes that uniquely identify an entity, similar to a primary key in a database. In some cases, this might be a single attribute such as an ID, while in others it can be a combination of several attributes. Unlike subjects and principals, which refer to active entities or actors, the concept of identity also applies to passive entities — the objects — as well.
 
@@ -135,7 +159,7 @@ In this pattern, each service is responsible for handling primary authentication
 
 #### Cons
 
-* **Inconsistency:** Authentication behavior, credential storage, and authentication flows differ across services, leading to fragmentation and a poor user experience.
+* **Inconsistency:** Authentication behavior, credential storage, and authentication flows differ across services, leading to fragmentation and a poor user experience, incl. not being able to support SSO.
 * **Security risk:** Authentication code is duplicated across services, increasing the risk of vulnerabilities and complicating audits.
 * **Maintenance burden:** Changing authentication methods (e.g., introducing MFA) requires updates across all affected services.
 * **Limited scalability:** Each service is responsible for identity management, complicating secure identity management across a large system. This makes the pattern unsuitable for scalable service-to-service authentication.
@@ -215,7 +239,7 @@ This approach consolidates authentication logic into a single enforcement point,
 
 ### Kernel-Level Authentication
 
-This pattern involves performing authentication at the operating system kernel level using cryptographic identities attached to either a service, or a machine/node, the service is running on. The actual implementation is based on protocols, such as IPSec, or WireGuard. The identity of a peer is cryptographically verified on each exchanged packet and is limited to layer 3. This form of enforcement is transparent to applications, making it a strong foundation for secure communication between workloads.
+This pattern involves performing authentication at the operating system kernel level using cryptographic identities attached to either a service, or a machine/node, the service is running on. The actual implementation is based on protocols, such as [IPSec](https://www.rfc-editor.org/rfc/rfc6071), or [WireGuard](https://www.wireguard.com/). The identity of a peer is cryptographically verified on each exchanged packet and is limited to [layer 3](https://en.wikipedia.org/wiki/Network_layer). This form of enforcement is transparent to applications, making it a strong foundation for secure communication between workloads.
 
 ![Kernel-Level Authentication](../assets/Kernel_Level_Authentication.svg)
 
@@ -231,7 +255,7 @@ This pattern involves performing authentication at the operating system kernel l
 
 * **Not suitable for layer 7 — application-level — authentication:** Identities are tied to workloads or nodes only and not to individual users or external clients. Because of this, this pattern cannot convey user-specific identity attributes.
 * **Limited observability:** Monitoring is confined to connection-level data (e.g., source/target workloads), lacking insight into user-driven actions within the application.
-* **Infrastructure complexity:** Requires robust automation for identity management, and OS- or kernel-level policy enforcement mechanisms (e.g. via [eBPF](https://ebpf.io/)).
+* **Infrastructure complexity:** Requires robust automation for identity management, and OS- or kernel-level authentication policy enforcement mechanisms (e.g. via [eBPF](https://ebpf.io/)).
 
 
 ### Operational and Security Considerations
@@ -399,10 +423,10 @@ When adopting this approach, the following trade-offs should be considered:
 
 #### Cons
 
-* **Scattered logic**: Authorization requirements tend to spread across multiple services, leading to code duplication, increased complexity, and maintenance overhead. Over time, this results in a slow and error-prone policy lifecycle, significantly reducing time to market. This is a classic “Hardcoded Rules” antipattern.
-* **Role explosion**: Business stakeholders typically describe authorization requirements using roles - for example, “a user with role X can do Y.” Without introducing an abstraction layer between business roles and the actual implementation, systems often accumulate many similar but inconsistent roles. Roles also tend to evolve or change names over time. This leads quickly to role explosion, again slowing the policy lifecycle and increasing the risk of errors. This is known as the “Code Against the Role” antipattern.
+* **Scattered logic**: Authorization requirements tend to spread across multiple services, leading to code duplication, increased complexity, and maintenance overhead. Over time, this results in a slow and error-prone policy lifecycle, significantly reducing time to market. This is a classic "Hardcoded Rules" antipattern.
+* **Role explosion**: Business stakeholders typically describe authorization requirements using roles — for example, "a user with role X can do Y". Without introducing an abstraction layer between business roles and the actual implementation, systems often accumulate many similar but inconsistent roles. Roles also tend to evolve or change names over time. This leads quickly to role explosion, again slowing the policy lifecycle and increasing the risk of errors. This is known as the “Code Against the Role” antipattern.
 * **Deprived Governance**: Autonomous teams may interpret and implement policies differently, making consistent governance for the whole environment nearly impossible. This may result in enforcement gaps and unpredictable behavior.
-* **No central auditability**: When authorization logic is distributed across services, it becomes nearly impossible to answer "before-the-fact" questions such as "Who has access to what, and when?" - a key requirement in compliance and security contexts.
+* **No central auditability**: When authorization logic is distributed across services, it becomes nearly impossible to answer "before-the-fact" questions such as "Who has access to what, and when?" — a key requirement in compliance and security contexts.
 * **Inconsistent monitoring**: Logging and audit trails vary widely across services and are often incomplete or incompatible. This hampers the ability to detect abuse, investigate incidents, or analyze system-wide access patterns.
 * **Coverage gaps**: Many frameworks do not expose ways to integrate access control into certain auto-exposed endpoints. Teams may also forget to secure these paths entirely. Documentation of the frameworks is also often inconsistent or misleading. All of that leads to unintended public exposure of sensitive endpoints.
 
@@ -525,20 +549,20 @@ Instead of embedding rigid policy logic or centralizing control in infrastructur
 
 #### Cons
 
-* **Performance overhead:** Similar to the classic pattern, delegating authorization to an external PDP introduces network latency and dependency on additional services. However, this can be mitigated by embedding the PDP directly into the edge-level proxy or gateway.
+* **Performance overhead:** Similar to the classic pattern, delegating authorization to an external PDP introduces network latency and dependency on additional services. Embedding the PDP directly into the edge-level proxy or gateway can mitigate this, but it shifts the cost to CPU usage and IO contention — which may impact proxy throughput under high request rates or complex policies.
 * **Policy distribution complexity:** Ensuring the correct version of a policy is evaluated in context of the specific service version requires additional coordination. This mainly depends on PDP capabilities and tooling.
 * **Operational complexity:** While contracts empower teams with autonomy, effective governance requires clear guidelines and automated validation tools to prevent misconfiguration or misuse.
 * **Dependency sprawl:** Accessing external PIPs or custom APIs adds more components to the system. Without careful management through standardized logging and robust tooling, this can lead to delays or inconsistent visibility.
 
-## Selecting Authorization Patterns
+## Decision Dimensions for Authorization Patterns
 
-The discussion of [Authorization Patterns](#authorization-patterns) might suggest that [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided due to drawbacks like scattered logic and limited auditability. However, this is not universally true. The suitability of an authorization pattern depends primarily on the system’s data dimensions, with policy management considerations playing a supporting role. This section provides a framework for selecting patterns that balance security, maintainability, and performance by analyzing data characteristics and distribution strategies, complemented by policy characteristics and distribution approaches. While data characteristics and data distribution strategies drive pattern selection, understanding policy characteristics and distribution ensures policies are authored, maintained, and delivered to PDPs efficiently.
+The discussion of [Authorization Patterns](#authorization-patterns) might suggest that [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided due to drawbacks like scattered logic and limited auditability. However, this is not universally true. The suitability of an authorization pattern depends primarily on the given system context, shaped by different dimensions that guide the design of authorization systems that are secure, manageable, and responsive. Therefore, this section introduces a framework for selecting authorization patterns by analyzing these key dimensions: **data characteristics** (locality, cardinality, freshness), **policy characteristics** (ownership, change rate), **distribution strategies** for data and policies, and **performance** considerations like latency and resource contention.
 
 ### Policy Characteristics
 
-Policy characteristics define how policies are authored, maintained, and updated, influencing their management and distribution. Two key dimensions, **[ownership](#ownership)** and **[change rate](#change-rate)**, guide these processes, which are critical for operationalizing authorization systems.
+Policy characteristics define how policies are authored, maintained, and updated, influencing their management and distribution. Two key dimensions, **[ownership](#policy-ownership)** and **[change rate](#policy-change-rate)**, guide these processes, which are critical for operationalizing authorization systems.
 
-#### Ownership
+#### Policy Ownership
 
 This dimension identifies who owns and maintains a policy, and often correlates with how composable or layered the policy needs to be.
 
@@ -546,7 +570,7 @@ This dimension identifies who owns and maintains a policy, and often correlates 
 * **Domain Level:** Policies shared across services within a business domain, often requiring coordination between teams. These policies may be abstracted and reused across multiple services, like a subscription domain enforces business rules about grace periods, usage limits, or billing thresholds that are referenced by billing, customer portal, and notification services.
 * **Central (Organization Level):** Policies governed by a central security, compliance, or platform team. These typically apply across domains or services and provide the foundation upon which more granular policies are built, like an organizational policy that defines acceptable data residency constraints or standard access conditions for administrative APIs.
 
-#### Change Rate
+#### Policy Change Rate
 
 This dimension describes how frequently a policy is expected to change, which has implications for where and how policies should be reviewed, deployed, and versioned.
 
@@ -556,59 +580,89 @@ This dimension describes how frequently a policy is expected to change, which ha
 
 ### Policy Distribution Strategies
 
-Distributing policies to PDPs ensures they are available for evaluation in microservice architectures. This subsection outlines two primary strategies, **[pre-loaded policies](#pre-loaded-policies)** and **[embedded policies](#embedded-policies)**, each with trade-offs affecting performance, scalability, and policy freshness. The choice mainly depends on the [Policy Characteristics](#policycharacteristics) and determines how quickly and reliably policy changes can be rolled out to production systems. It also influences operational workflows — such as testing, rollback, and emergency overrides — and interacts with the system's requirements for agility and stability.
+Distributing policies to PDPs ensures they are available for evaluation in microservice architectures. This subsection outlines two primary strategies — **[out-of-band delivered policies](#out-of-band-delivered-policies)** and **[embedded policies](#embedded-policies)** — each with trade-offs affecting performance, scalability, and policy freshness. The choice largely depends on the [policy characteristics](#policy-characteristics), and influences operational workflows, such as testing, rollback, and emergency overrides.
 
-#### Pre-Loaded Policies
+#### Out-of-Band Delivered Policies
 
-Policies are proactively sent to the PDP and stored locally for evaluation, often alongside pre-loaded data, as described in [Pre-Loaded Data](#pre-loaded-data).
+Policies are proactively sent to the PDP and stored locally for evaluation. This strategy suits policies that are owned by microservice or domain teams and tend to have medium to high change rates, requiring agile, incremental updates without disrupting service availability.
 
 **Pros:**
 
-* Required policy changes can be applied to a PDP without compromising availability
+* Enables applying policy changes dynamically without redeploying PDPs, supporting high availability.
 
 **Cons:**
 
-* Requires robust synchronization to keep policies consistent with the repository.
-* Adds complexity to distribution pipelines for real-time or near-real-time updates.
+* Requires robust synchronization mechanisms to deploy the correct versions of required policies to each PDP instance.
 
 
 #### Embedded Policies
 
-Policies are embedded in the PDP (e.g. as code, or as static configuration) and cannot be updated without restarting or redeploying the PDP. This strategy is ideal for Low change rate policies.
+Policies are embedded directly within the PDP (e.g. as code, or as static configuration) and cannot be updated without restarting or redeploying the PDP. This approach is best suited for policies managed centrally at an organizational level and have low change rates. Stability and operational simplicity are typically prioritized over agility in such cases.
 
 **Pros:**
 
 * Simplifies policy management, as policies are bundled with the PDP.
-* Reduces operational complexity.
 
 **Cons:**
 
-* Increases deployment overhead, as changes involve rebuilding or redeploying the PDP.
+* Increases deployment overhead, as changes involve rebuilding and/or redeploying the PDP.
 * Limits scalability for needs with frequent policy adjustments.
 
 ### Data Characteristics
 
-Selecting an authorization pattern requires understanding the properties of the data used for access decisions. This subsection defines two key dimensions, **[locality](#locality)** and **[cardinality](#locality)**, that characterize data and guide the choice of pattern and the data distribution strategy.
+Understanding the characteristics of the data involved in policy evaluation — both inputs and outputs — is key to selecting an appropriate authorization pattern. The first subsections focus on the input side and introduce three key dimensions: **[input data locality](#input-data-locality)**, **[input data cardinality](#input-data-cardinality)**, and **[input data freshness](#input-data-freshness)**. The last section covers the characteristics of the output data — the [output data cardinality](#output-data-cardinality)
 
-#### Locality
+Locality describes the scope within which data is relevant and shared, cardinality influences how much data must be managed, and freshness affects how often that data must be refreshed or fetched in real time. Together, these dimensions critically shape authorization system design.
 
-* **Microservice-Local Data:** Only relevant within a single microservice, not reused outside. For example, a user’s sorting preference for a list view, per-service feature toggles, or rate-limiting counters maintained per client in a specific service.
+#### Input Data Locality
+
+Locality defines the boundaries of data relevance and reuse, from tightly scoped to broadly shared:
+
+* **Service-Local Data:** Data relevant only within a single service, not reused elsewhere. For example, service-specific configuration flags affecting authorization decisions only inside that service, or ephemeral session attributes used exclusively by the service’s internal logic.
 * **Domain-Level Data:** Data shared across multiple services within the same bounded context or domain. Examples include ownership metadata of documents in a document management domain, customer account status (e.g., frozen, active, under review) used by both billing and support services, or time-based availability windows for booking or scheduling services.
-* **Organization-Level Data:** Relevant across domains or the entire system, such as regulatory classification of data (e.g., “EU personal data”), tenant-level subscription tier or plan.
+* **Organization-Level Data:** Relevant across domains or the entire system, such as regulatory classification of data (e.g., "EU personal data"), tenant-level subscription tier or plan.
 
-#### Cardinality
+#### Input Data Cardinality
 
-* **High Cardinality Data:** Data that is highly specific to individual requests or subjects and tends to change frequently, like a real-time risk score computed per authentication attempt or the time of the last successful MFA challenge.
-* **Medium Cardinality Data:** Data that applies to a set of subjects or resources and has moderate variability, like project identifiers tied to multiple resources
-* **Low Cardinality Data:** Data with few distinct values, often static or organizationally defined. For example, environment labels (e.g., “production”, “staging”), or business unit identifiers (e.g., “HR”, “Finance”, “R&D”).
+Cardinality refers to the number of distinct attributes across all subjects or resources. It determines how easily data can be cached or distributed in an access control systems.
 
-### Data Distribution Strategies
+* **High:** Many distinct data items, often tied to individual requests or users (e.g., a real-time risk score or geoip information).
+* **Medium:** Moderate number of distinct data items typically shared across sets of subjects or resources (e.g., project IDs or internal department tags).
+* **Low:** Few distinct data items. For example, environment labels (e.g., "production", "staging"), or business unit identifiers (e.g., "HR", "Finance", "R&D").
+
+#### Input Data Freshness
+
+This measures the maximum acceptable delay between an attribute value changing, and that change being reflected in authorization decisions.
+
+* **High:** Changes must be reflected immediately or within seconds to maintain accurate authorization (e.g., real-time risk scores, breach detection flags).
+* **Medium:** Changes should be reflected within minutes to hours, balancing freshness and performance (e.g., feature toggles, subscription tiers).
+* **Low:** Changes can be reflected with delays of hours to days without significant impact.
+
+
+#### Output Data Cardinality
+
+As written in the [story section](#a-story-to-ground-the-concepts), policy decisions often include more than just simple `"permit"` or `"deny"` responses. They may carry **structured outputs** that shape the final data set accessible to a subject — such as lists of permitted object IDs, query filters, or advices.
+
+These outputs fall into two broad categories:
+
+* **Metadata**: Optional guidance or instructions to the PEP (e.g., log this access, display a warning).
+* **Decision Data**: The core result of policy evaluation — potentially including constraints, and similar information describing what access is allowed.
+
+While the PDP returns the decision, its structure and size — the **output cardinality** — are defined by the **policy logic**, which reflects the needs of the consuming application. For example, if an application must render only the documents a user is allowed to see, the policy may be implemented to return a list of permitted document IDs, increasing output cardinality.
+
+That way, the output cardinality can be grouped into three levels:
+
+* **Low**: Simple decisions with minimal metadata, such as `{ "result": true }` or `{ "decision": "permit" }`.
+* **Medium**: Decisions include multiple structured attributes or small lists (e.g., a few allowed object IDs, scopes, or roles). Example: `{ "allowed_projects": ["A", "B"] }`.
+* **High**: Large or complex result sets, such as thousands of object IDs, deeply nested structures, or partial object representations. These often require pagination or streaming. Example: `{ "resources": ["doc1", "doc2", ..., "doc5000"] }`.
+
+### Policy Input Data Distribution Strategies
 
 As can be seen from the discussion of the [Authorization Patterns](#authorization-patterns), approaches based on embedded or external PDPs face the following common challenges: how to distribute relevant data and policies to the PDP. This subsection outlines three primary strategies for distributing data to PDPs, each having distinct trade-offs, and their suitability depends on the specific PDP type (e.g., PBAC, ReBAC, or NGAC), the system’s requirements for performance, scalability, and data freshness.
 
-#### On-Demand Data Fetch
+#### On-Demand Data Pull
 
-The PDP fetches data from PIPs at the time of policy evaluation, typically via APIs or database queries. This approach is also known as "pull" approach.
+The PDP fetches data from PIPs at the time of policy evaluation, typically via APIs or database queries. PDPs supporting this option typically allow for configurable caching of the pulled data. 
 
 **Pros**
 
@@ -622,21 +676,23 @@ The PDP fetches data from PIPs at the time of policy evaluation, typically via A
 * Complicates retry and failure handling, as the PDP must manage timeouts, errors, or unavailable PIPs, potentially leading to degraded service or fallback decisions.
 * Introduces dependencies on external systems, reducing resilience if PIPs are slow or unavailable.
 * Limits the usable PDP types, as ReBAC and NGAC implementations typically don’t support this strategy.
+* Can degrade system performance when attributes are accessed repeatedly.
 
-#### Pre-Loaded Data
+While caching (if supported by the PDP) can mitigate some of these cons, it introduces the risk of stale data, potentially leading to incorrect authorization decisions.
 
-Data is proactively sent to the PDP in advance, and stored in memory or a local data store for faster access during evaluation. This approach is also known as "push" approach.
+#### Out-of-Band Data Push
+
+Data is proactively sent to the PDP in advance, and stored in memory or a local data store for faster access during evaluation.
 
 **Pros**
 
 * Improves performance by storing data locally (e.g., in cache or a local database), enabling faster policy evaluation without network overhead.
-* Enhances resilience, as the PDP can operate independently of PIP availability
+* Enhances resilience, as the PDP can operate independently of PIP availability, allowing PDP instances to remain lightweight and focused on evaluation, which improves their scalability.
 
 **Cons**
 
-* Requires robust invalidation and synchronization strategies to ensure data remains consistent with source systems, especially for frequently updated data.
-* Increases memory or storage demands on the PDP, which can be problematic for high-cardinality data or large datasets.
-* Adds complexity to data pipelines, as mechanisms must be built to push updates to the PDP in real-time or near-real-time.
+* Requires robust data distribution pipelines, as mechanisms must be built to push updates to the PDP instances in real-time or near-real-time, especially for data with [high-freshness data](#input-data-freshness) requirements.
+* Increases memory or storage demands on the PDP, which can be problematic for [high-cardinality data](#input-data-cardinality).
 
 #### Request-Time Data Injection
 
@@ -644,81 +700,162 @@ Required data is passed directly in the request from the PEP to the PDP — an a
 
 **Pros**
 
-* Enables handling of high-cardinality or dynamic data without preloading large datasets into the PDP, reducing memory or storage requirements.
+* Enables handling of [high-cardinality](#input-data-cardinality) or [high-freshness](#input-data-freshness) data without preloading large datasets into the PDP, reducing memory or storage requirements.
 * Ensures data freshness, as the PEP provides the exact attributes needed for the specific request context.
+* Reduces load on the PDP by shifting data fetching and preparation to the PEP, allowing PDP instances to remain lightweight and focused on evaluation, which improves their scalability.
 
 **Cons**
 
 * Increases request size, as additional data is included in the decision request, potentially impacting network performance.
 * Places the burden on the PEP (e.g., microservice or edge component) to collect and validate data from PIPs, increasing complexity in the calling component.
 * Risks inconsistent data if the PEP fails to provide all required attributes or if data collection is misconfigured, potentially leading to incorrect decisions.
-* Limited applicability for ReBAC or NGAC PDPs, which require most authorization data to be pre-present in their databases, allowing only a small amount of attributes to be provided by the PEP during the PDP call.
+* Limited applicability for ReBAC or NGAC PDPs, which require most authorization data to be pre-present in their databases, allowing only a small number of attributes to be provided by the PEP during the PDP call.
+* Can degrade system performance when attributes are accessed repeatedly.
+
+While caching (if supported by the PEP) can mitigate some of these cons, it introduces the risk of stale data, potentially leading to incorrect authorization decisions.
+
+### Policy Output Data Handling Patterns
+
+As stated earlier, access control requirements often go beyond simple cases like "can subject X read object Y?". In practice, most requests hitting a PEP involve multiple, context-sensitive decisions. This is especially true for read operations, such as deciding whether to render "edit" or "delete" buttons based on a user's permissions.
+
+These decisions can often be handled via batch requests, where the PEP sends multiple access queries in a single call, and the PDP evaluates them at once, returning one simple decision per item. However, access requests involving larger output data sets, such as for rendering a list of articles Alice is allowed to see, can, depending on the chosen approach, significantly affect [output data cardinality](#output-data-cardinality) and directly influence the choice of the possible [authorization patterns](#authorization-patterns).
+
+The following subsections describe the typical patterns used in such cases.
+
+#### PDP as Filter, aka Brute-Force Lookup
+
+In this pattern, the PEP retrieves all potentially relevant data from a PIP (e.g., a database or API) and iterates over each item, querying the PDP to check whether access is permitted. If allowed, the item is included in the final result (e.g., rendered HTML or returned JSON).
+
+**Pros**
+
+* Simple to implement.
+* Works with any PDP.
+* Easy to debug and monitor.
+
+**Cons**
+
+* High latency and poor scalability for high-cardinality queries due to repeated PDP calls.
+* Increases resource consumption by retrieving more data than needed.
+* Tightly couples the PEP with the service’s business logic and makes externalizing the PEP (e.g., into a proxy) impossible.
+* Changes to access policies typically require service redeployments or even refactorings.
+
+The first two cons might be partially resolved by making use of batch queries if the PDP supports that.
+
+
+#### Authorized Data Set
+
+In this pattern, the PEP makes a single request, and the PDP returns a complete set of allowed resources (e.g., object IDs). The PDP constructs this result based on policy logic and available attributes.
+
+**Pros**
+
+* Reduces round-trips by returning all results at once.
+* Simplifies PEP logic, as the PDP handles the complexity of determining the authorized dataset.
+* Well-suited for ReBAC or NGAC PDPs, which can leverage internal data models to compute permitted resources.
+* Externalizing the PEP to e.g., an external proxy is only feasible for low to medium cardinality output data sets.
+
+
+**Cons**
+
+* Might complicate error handling and monitoring of data access.
+* Require pagination or streaming for bigger output data sets.
+* Results in complex policies for PDPs implementing PBAC approaches.
+* Not supported by every PBAC PDP implementation.
+
+
+#### Authorization Filter
+
+In this pattern, the PEP calls the PDP, which returns a filter expression (e.g., a SQL WHERE clause, query predicate, or attribute-based condition). The PEP then applies this filter during data retrieval (e.g., in a database query) to fetch only the authorized data.
+
+**Pros**
+
+* Highly efficient for large datasets — filtering happens at the PIP (data source).
+* Scales well with high output cardinality.
+* Reduces PDP load.
+* PDP does not need to not know all data sets.
+* Enables flexible PEP placement — as part of the service, or as an external proxy.
+
+**Cons**
+
+* Not supported by every PDP (ReBAC und NGAC PDPs do not support that at all).
+* Might complicate error handling, monitoring of data access, and diagnosing related issues.
+
+### Performance
+
+Last but not least, performance plays a critical role in the design of authorization systems — especially in latency-sensitive environments. From the end-user’s perspective, Time to First Byte (TTFB) is one of the most influential metrics, as described in Phil Walton’s article on [user-centric performance metrics](https://web.dev/articles/user-centric-performance-metrics).
+
+TTFB represents the time it takes for the first byte of a response to reach the client and reflects the perceived responsiveness of a system. It implicitly defines the **latency budget** available for upstream processes — including authorization decisions. This concept is further reinforced by the [speed and human perception thresholds](https://hpbn.co/primer-on-web-performance/#speed-performance-and-human-perception) discussed in *[High Performance Browser Networking](https://hpbn.co/)*.
+
+The following factors strongly influence architecture decisions — such as PDP placement and data handling — and directly impact whether the system can meet that latency budget:
+
+* **Policy evaluation latency:** The time a PDP takes to compute a decision depends on the number and complexity of policies and the [input data cardinality](#input-data-cardinality) — i.e., how many attributes must be evaluated.
+
+* **Data retrieval latency:** When attributes are fetched on-demand (see [Policy Input Data Distribution Strategies](#policy-input-data-distribution-strategies)), latency depends on the number of PIPs involved, the volume of data ([input data cardinality](#input-data-cardinality)), and its locality. This can add significant variability to response time.
+
+* **Policy output handling:** The [output data cardinality](#output-data-cardinality) and the selected [output handling pattern](#policy-output-data-handling-patterns) affect the time required to process and apply the result.
+
+* **PDP integration overhead:** Overheads include network latency (ranging from ca. 300µs on loopback to >200ms for cross-region communication), DNS resolution, TLS handshake, and data serialization/deserialization. Protocol choices (e.g., HTTP/1.1 vs. HTTP/2 vs. gRPC) can further influence this. For in-process PDPs, these costs are minimized, though serialization costs may still apply.
+
+* **Runtime resource contention:** ("Busy Neighbor" effect) PDPs are typically CPU- and memory-intensive. Co-located resource-hungry processes can degrade performance significantly if compute and memory isolation aren’t enforced.
+
+* **Caching and memoization:** Many PDPs implement decision caching or partial evaluation to avoid repeated computation for deterministic inputs. These optimizations can reduce latency but can lead to outdated decisions and require robust cache invalidation logic.
+
+Additional considerations include:
+
+* **Connection reuse and pooling:** Using persistent connections, connection pooling, or multiplexed protocols (like gRPC or HTTP/2) helps amortize integration overhead and reduce connection setup time.
+
+* **Fallback strategies and timeouts:** Systems must decide how to behave when the PDP is slow or unavailable. Strategies such as *fail-closed*, *fail-open*, or *graceful degradation* are architectural decisions that directly impact perceived performance and security posture.
+
 
 
 ### Pattern Selection and Data Distribution Mapping
 
-This subsection maps the locality and cardinality dimensions to recommended authorization patterns and data distribution strategies, providing a decision framework for microservice architectures. The mapping considers the trade-offs of each pattern and outlines the capabilities of PEPs and PDPs.
+This subsection maps the data characteristics dimensions to recommended authorization patterns and data distribution strategies, providing a decision framework for microservice architectures. The mapping considers the trade-offs of each pattern and outlines the capabilities of PEPs and PDPs.
 
-* **Microservice-Local Data**
-  * **Recommended Pattern:** [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) or [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp). These patterns are ideal regardless of cardinality, as the data’s isolated scope mitigates drawbacks like auditability or scattered logic.
+**Service-Local Data**
+
+  * **Recommended Pattern:** [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) or [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp). These patterns are ideal regardless of data cardinality or change rate, as the data’s isolated scope mitigates drawbacks like auditability or scattered logic.
   * **Data Distribution Strategy:** [Request-time data injection](#request-time-data-injection) is preferred, as the microservice (acting as the PEP) has direct access to local data and can include it in decision requests to the PDP.
   * **Considerations:** Both recommended patterns offer simplicity and autonomy, while embedded PDPs provide governance without external dependencies in addition. Request-time injection keeps complexity low, as no external PIPs are involved.
-* **Domain-Level Data and Organization-Level Data with Medium or Low Cardinality**
-  * **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns ensure consistent enforcement and auditability across shared data scopes.
-  * **Data Distribution Strategy:** [On-demand data fetch](#on-demand-data-fetch) or [preloaded data](#pre-loaded-data) are suitable. Both approaches ensure freshness of data and optimize performance by storing it locally in the PDP.
-  * **Considerations:** Embedded PDPs reduce latency, while external PDPs, such as those implementing ReBAC approaches, support advanced capabilities, such as before-the-fact-audit. Pre-Loaded data requires synchronization pipelines, and on-demand fetch needs robust PIP availability handling.
-* **Domain-Level Data and Organization-Level Data with High Cardinality**
-  * **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns handle complex, shared data while supporting dynamic attribute inclusion.
-  * **Data Distribution Strategy:** [Request-time data injection](#request-time-data-injection) is essential, as high-cardinality data (e.g., per-user risk scores) cannot be fully preloaded due to PDP memory or storage limits, so the PEP must collect attributes from PIPs and include them in the decision request.
+
+**Domain-Level Data and Organization-Level Data with Medium or Low Cardinality**
+
+  * **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns ensure consistent enforcement and auditability across shared data scopes.
+  * **Data Distribution Strategy:** [on-demand data pull](#on-demand-data-pull) or [out-of-band data push](#out-of-band-data-push) are suitable. Both approaches ensure freshness of data, with out-of-band data push also optimizing performance by storing it locally in the PDP eagerly.
+  * **Considerations:** Embedded PDPs reduce latency, while external PDPs, such as those implementing ReBAC approaches, support advanced capabilities, such as before-the-fact-audit. [Out-of-band data push](#out-of-band-data-push) requires synchronization pipelines, and [on-demand data pull](#on-demand-data-pull) needs robust PIP availability handling.
+
+**Domain-Level Data and Organization-Level Data with High Cardinality**
+
+  * **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns handle complex, shared data while supporting dynamic attribute inclusion.
+  * **Data Distribution Strategy:** If [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp) is used, [Request-time data injection](#request-time-data-injection) is essential, as high-cardinality data cannot be fully preloaded due to PDP memory limits, so the PEP must collect attributes from PIPs and include them in the decision request. ReBAC, or NGAC PDP implementations typically address that limitation and can be used as [External PDP](#centralized-service-level-access-control-with-external-pdp). In that case, [out-of-band data push](#out-of-band-data-push) approach can be used. 
   * **Considerations:** In centralized models, microservices (as PEPs) handle PIP integration, increasing complexity. In edge-level models, the edge layer manages data enrichment, simplifying microservices but requiring robust edge configuration. Request-time injection ensures scalability but demands reliable PEP data collection.
 
 ## Practical Considerations & Recommendations
 
-### Data and Policy Distribution in Practice
-
-See the Pre-Loaded Data diagrams for embedded and external PDP setups, which include policy distribution via components like the Distributor, Aggregator, Policy Aggregator, and Data Aggregator. These components manage policy loading and updates alongside data, ensuring PDPs are configured with the latest policies.
-
-The following diagrams illustrate typical setups for distributing data and policies to PDP instances in embedded and external PDP approaches.
-
-![Embedded PDP Data & Policy Distribution](../assets/Embedded_PDP_Data_Policy_Distribution.svg)
-
-In addition to components described in the Authorization Reference Architecture, this diagram introduces three components:
-
-* **Configuration Repository:** Stores configurations for each PDP instance, specifying policy sources, initial data sets from PIPs, and other settings.
-* **Distributor:** Manages the data and policy distribution control plane. It reads configurations from the configuration repository, distributes them to aggregators, and forwards updates.
-* **Aggregator:** Connects to the distributor, configures its assigned PDP with policies and initial data, and applies data or policy updates.
-
-1. The distributor starts, reads configurations from the configuration repository, and awaits aggregator connections.
-2. An aggregator starts, connects to the distributor, and receives its configuration.
-3. The aggregator pulls policies from the policy repository as specified.
-4. It fetches initial data sets from designated PIPs.
-5. It configures the PDP with the retrieved policies and data.
-6. When a PEP receives an external request, it queries the PDP for a decision, which may update microservice-managed data.
-7. Events reflecting updates are sent to the event distribution system and received by the distributor.
-8. The distributor forwards events to relevant aggregators.
-9. Aggregators update the PDP’s data sets accordingly.
-
-![External PDP Data & Policy Distribution](../assets/External_PDP_Data_Policy_Distribution.svg)
-
-This diagram resembles the embedded setup but reflects a PDP shared by multiple microservices, introducing:
-
-* **Configuration Repository:** Stores the PDP’s configuration, including policy sources and initial data sets sources (PIPs).
-* **Policy Aggregator:** Loads policies into the PDP and applies policy updates.
-* **Data Aggregator:** Retrieves initial data sets from PIPs and updates the PDP’s data.
-
-1. The policy aggregator starts and reads its configuration from the repository.
-2. It loads and optionally merges policies from the policy repository.
-3. It applies the policies to the PDP.
-4. The data aggregator starts and reads its configuration from the repository.
-5. It retrieves initial data sets from designated PIPs.
-6. It loads the data into the PDP.
-7. When a PEP receives an external request, it queries the PDP for a decision, which may update microservice-managed data.
-8. Events reflecting updates are sent to the event distribution system and received by the data aggregator.
-9. The data aggregator updates the PDP’s data sets.
-
 ### Authorization Patters Implications on Authentication Patterns
 
 TODO: address the interplay between authentication and authorization patterns, explaining how authentication mechanisms (e.g., edge-level vs. service-level) influence authorization choices and vice versa
+
+### Data and Policy Distribution in Practice
+
+Building on the concepts introduced in [Data Distribution Strategies](#data-distribution-strategies) and [Policy Distribution Strategies](#policy-distribution-strategies), this section demonstrates how the [out-of-band data push](#out-of-band-data-push) and [out-of-band delivered policies](#out-of-band-delivered-policies) approaches translate into concrete architectures in real-world PDP deployments. These architectures — whether for embedded PDPs or standalone PDP services — incorporate specific control-plane components, described below, that manage initialization, configuration, and continuous updates to ensure that PDPs remain synchronized and deliver accurate authorization decisions in dynamic environments.
+
+* **Configuration Repository:** Stores the desired configuration for each PDP instance, including detailed references to required policies — such as their repository locations and version information — as well as PIP integration settings, including endpoints, supported protocols, credentials, and other communication-specific parameters.
+* **Distributor:** A control-plane component responsible for distributing configuration that enables Aggregators to obtain and apply data and policy artifacts. It retrieves configuration from the Configuration Repository and monitors it for changes. Whenever an Aggregator connects or updated configuration becomes available, the Distributor pushes the applicable configuration to that Aggregator. Depending on the implementation, it may also act as a relay for data updates from PIPs, forwarding only the relevant updates to each Aggregator based on their configured subscriptions.
+* **Aggregator:** A control-plane component responsible for configuring a PDP instance with the required policies and data. The Aggregator acts as a client of the Distributor, connecting to it to receive its configuration and any updates. Based on this configuration, it retrieves policies and data from designated sources — policy repositories for policies and PIPs for data — and monitors these sources to ensure the PDP remains synchronized with the desired state. Monitoring of policies depends on the capabilities of the policy repository and typically involves polling. Data monitoring may occur through the Distributor, which can relay relevant updates received from an event distribution system — such as message buses or webhooks — through which PIPs distribute updates. Alternatively, the Aggregator may monitor PIPs directly.
+
+The following setup illustrates this approach, showing how a PDP can be provisioned with policies and data while supporting runtime updates.
+
+![Embedded PDP Data & Policy Distribution](../assets/Embedded_PDP_Data_Policy_Distribution.svg)
+
+1. The Distributor starts, retrieves configurations from the Configuration Repository, and waits for Aggregator connections.
+2. An Aggregator starts, connects to the Distributor, and receives its configuration.
+3. The Aggregator pulls policies from the specified Policy Repository.
+4. It fetches initial data sets from the designated PIPs.
+5. The Aggregator configures the PDP with the retrieved policies and data.
+6. When a PEP intercepts a request, it queries the PDP for an authorization decision. If the request is allowed and forwarded to the microservice, it may result in updates to microservice-managed data.
+7. Resulting update events are sent to the event distribution system and received by the interested Aggregators.
+8. Aggregator updates the PDP’s data sets accordingly.
+
 
 ### Mapping Product Features
 

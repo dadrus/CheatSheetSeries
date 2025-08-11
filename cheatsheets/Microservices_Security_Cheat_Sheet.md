@@ -163,7 +163,8 @@ In this pattern, each service is responsible for handling primary authentication
 * **Security risk:** Authentication code is duplicated across services, increasing the risk of vulnerabilities and complicating audits.
 * **Maintenance burden:** Changing authentication methods (e.g., introducing MFA) requires updates across all affected services.
 * **Limited scalability:** Each service is responsible for identity management, complicating secure identity management across a large system. This makes the pattern unsuitable for scalable service-to-service authentication.
-* **Authentication orchestration:** Handling of multi-principal subjects — that is supporting multiple authentication configurations, including protocol chaining and subject-specific variations, required to support different contexts, like first- and third-party, or external client and service-to-service authentication, adds significant complexity.
+* **Limited observability and governance:** Suspicious activity often goes undetected without centralized monitoring. Credential reuse, account compromise, or brute-force attacks on one service remain invisible to others, hindering coordinated detection and response.
+* **Authentication orchestration:** Handling of multi-principal subjects — that is supporting multiple authentication configurations, including protocol chaining and subject-specific variations, required to support different contexts, like first- and third-party, or external client and service-to-service authentication — adds significant complexity.
 * **Coupling of external authentication data with internal trust assumptions:** Using the same authentication data for both external clients and internal services increases the risk of leakage and unauthorized access. If an internal service is inadvertently exposed because of a misconfiguration or an attacker gaining internal access, the leaked authentication data may enable unauthorized access to sensitive resources.
 
 ### Service-Level Code-Mediated Authentication
@@ -234,7 +235,7 @@ This approach consolidates authentication logic into a single enforcement point,
 * **Limited granularity:** Fine-grained or per-endpoint authentication policies (e.g., step-up authentication) are generally harder to implement and may require additional coordination with downstream services. This heavily depends on the capabilities of the edge proxy
 * **Identity propagation challenges:** Ensuring secure and reliable propagation of identity context (e.g., via headers) requires strict validation and trust models between the edge and internal services. Proper governance can help overcome this limitation.
 * **Single Point of Failure:** While the ingress proxy or gateway is already a central component in most architectures, performing authentication at the edge makes it a critical part of the security infrastructure. Misconfiguration or compromise can impact not just access, but the integrity of authentication decisions system-wide.
-* **Not suitable for service-to-service authentication:** Edge-level authentication only applies to incoming external requests. Internal service-to-service calls require additional authentication mechanisms.
+* **Not suitable for service-to-service authentication:** Edge-level authentication only applies to incoming external requests. Internal service-to-service calls require additional authentication mechanisms. Although technically possible, routing internal communication through the edge may introduce severe performance bottlenecks.
 
 
 ### Kernel-Level Authentication
@@ -264,19 +265,19 @@ While the above authentication patterns differ primarily in terms of *where* and
 
 #### Operational Considerations
 
-| Pattern                          | Configuration Burden | Operational Overhead     | Observability Scope  |
-| -------------------------------- |----------------------| -----------------------  | -------------------- |
-| **Service-Level Embedded**       | High                 | High                     | Application-specific |
-| **Service-Level Code-Mediated**  | Medium               | Medium                   | Application-specific |
-| **Service-Level Proxy-Mediated** | Medium               | High (infra cost)        | Proxy + Application  |
-| **Edge-Level**                   | Low                  | Low                      | Centralized (Proxy)  |
-| **Kernel-Level**                 | Low-Medium           | High (infra complexity)  | Network-level only   |
+| Pattern                          | Configuration & Implementation Burden | Operational Overhead     | Observability Scope        |
+| -------------------------------- |---------------------------------------| -----------------------  |----------------------------|
+| **Service-Level Embedded**       | High                                  | High                     | Application-specific       |
+| **Service-Level Code-Mediated**  | Medium                                | Medium                   | IDP + Application-specific |
+| **Service-Level Proxy-Mediated** | Medium                                | High (infra cost)        | Proxy + Application        |
+| **Edge-Level**                   | Low                                   | Low                      | Centralized (Proxy)        |
+| **Kernel-Level**                 | Low-Medium                            | High (infra complexity)  | Network-level only         |
 
 Patterns with decentralized authentication (like [Service-Level Embedded Authentication](#service-level-embedded-authentication)) typically incur more operational overhead due to inconsistencies, duplicated configuration, and monitoring complexity. Centralized patterns reduce duplication but introduce infrastructure dependencies and require resilient design.
 
 #### Security Considerations
 
-Security risks increase significantly when authentication logic and credentials are handled directly within application code. Centralized enforcement approaches — whether at the edge or within the OS kernel — help limit exposure, enforce stronger boundaries, and reduce the risk of misconfiguration. However, care must be taken to prevent trust leakage, which directly impacts the ability to enforce the principle of least privilege. Achieving this depends not only on where authentication occurs, but also on how identity information is propagated and verified downstream. Without trustworthy, tamper-resistant propagation, even strong initial authentication can be undermined — weakening trust boundaries and ultimately impairing the system’s ability to make reliable authorization decisions. To address this, the next section examines common identity propagation strategies and their impact on system security, observability, and trust enforcement.
+Security risks increase significantly when authentication logic and credentials are handled directly within application code. Centralized enforcement approaches — whether at the IDP, edge, or within the OS kernel — help limit exposure, enforce stronger boundaries, and reduce the risk of misconfiguration (especially at the edge). However, care must be taken to prevent trust leakage, which directly impacts the ability to enforce the principle of least privilege. Achieving this depends not only on where authentication occurs, but also on how identity information is propagated and verified downstream. Without trustworthy, tamper-resistant propagation, even strong initial authentication can be undermined — weakening trust boundaries and ultimately impairing the system’s ability to make reliable authorization decisions. To address this, the next section examines common identity propagation strategies and their impact on system security, observability, and trust enforcement.
 
 **Note:** Operational and security concerns such as token theft, replay protection, session lifecycle, and reauthentication are critical when implementing authentication mechanisms. These topics are extensively covered in e.g. [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html), and [Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
 
@@ -291,7 +292,7 @@ At one end of the spectrum, some patterns directly forward externally issued aut
 
 Between these extremes exist intermediate patterns where internal services rely on simplified identity representations issued or transformed by upstream services but without cryptographic protections, requiring implicit trust between services.
 
-Each pattern involves trade-offs between implementation complexity, security, trust, and operational overhead. Choosing the appropriate identity propagation approach depends on the system’s security posture, scalability requirements, and the desired level of trust between internal components.
+Each pattern involves trade-offs between implementation complexity, security, trust, privacy and operational overhead. Choosing the appropriate identity propagation approach depends on the system’s security posture, scalability requirements, and the desired level of trust between internal components.
 
 Understanding these trade-offs in concrete terms requires examining how identity propagation is commonly implemented in practice. The following sections describe representative patterns along this spectrum, highlighting their characteristics, benefits, and limitations.
 
@@ -390,6 +391,14 @@ It’s worth noting that the edge-component roles shown in the diagram above —
 * **Revocation challenges:** Once issued, tokens may be valid for many services until expiration, complicating immediate revocation. This can, however, be mitigated by issuing short-lived tokens and tailoring subject structures to individual downstream services.
 * **Increased complexity at the edge:** The edge component must handle external authentication data verification as well as internal token generation and signing, making it a critical security component.
 
+### On Privacy By-Design
+
+Privacy concerns — particularly around cross-context linkability and the risk of exposing internal identifiers — affect all identity propagation patterns, though their severity depends on how externally received authentication data is handled.
+
+Implementation of patterns like [External Identity Propagation](#external-identity-propagation) and [Simple Service-Level Identity Forwarding](#simple-service-level-identity-forwarding) typically directly reuse externally visible authentication data within the system. This increases the risk that internal identifiers (e.g., `sub` claims in JWTs) become externally observable, enabling correlation of user activity across contexts. Such reuse undermines core privacy goals like pseudonymisation and data minimisation and conflicts with principles of integrity and confidentiality — all central to privacy-by-design thinking.
+
+In contrast, patterns like [Token Exchange-Based Identity Propagation](#token-exchange-based-identity-propagation) and [Protocol-Agnostic Identity Propagation](#protocol-agnostic-identity-propagation) help enforce privacy boundaries by transforming or isolating authentication data before it’s used internally. That doesn’t mean these patterns — or their specific implementations — are immune to privacy risks. They simply make it easier to adopt techniques such as opaque tokens, session-referencing cookies, or identifier mapping, which reduce unnecessary exposure of user-specific identifiers. Even so, mapped identifiers can still reveal the existence of a persistent relationship with the system, which may be problematic in certain contexts. Still, these patterns embody privacy-by-design principles more effectively — and as a positive side effect, tend to align well with legal requirements such as the GDPR (Art. 5(1)(b, c, f), Art. 32, Recitals 26 and 30), CCPA, and similar frameworks.
+
 
 ## Authorization Patterns
 
@@ -397,9 +406,9 @@ While some basic access control can be applied to anonymous or unauthenticated s
 
 The corresponding architectural approaches can be described by authorization patterns. These patterns define where Policy Decision Points (PDPs), Policy Enforcement Points (PEPs), and Policy Information Points (PIPs) are placed within a system and how they interact. They also govern how subject and object identities, along with related attributes, flow between these components — and where policies are stored and accessed.
 
-Choosing the right patterns is critical, as it directly impacts the system’s security posture, performance, scalability, and maintainability. The following subsections explore the most common ones used in distributed architectures, outlining their trade-offs and typical use cases.
+Choosing the right patterns is critical, as it directly impacts the system’s security posture, performance, scalability, and maintainability. The following subsections explore the most common ones used in distributed architectures and outline their trade-offs.
 
-### Decentralized Service-Level Access Control
+### Decentralized Service-Level Authorization
 
 In this pattern, most of the functional components from the reference architecture are implemented directly within each microservice. Even the Policy Information Points (PIPs) may be embedded into the service logic (e.g., via database or configuration entries) if the microservice is responsible for all relevant attributes itself. However, this is rarely the case, and most microservices must integrate with other services to retrieve required attributes, treating those other services as external PIPs.
 
@@ -434,129 +443,109 @@ When adopting this approach, the following trade-offs should be considered:
 These cons often result in "accept by default" behavior, ultimately leading to broken access control vulnerabilities.
 
 
-### Centralized Service-Level Access Control with embedded PDP
+### Centralized Service-Level Authorization
 
-This pattern aims to address the first three drawbacks of the previous pattern — to reduce complexity, improve time to market, and establish governance over policy definitions — by decoupling policy logic from service code and supporting its own lifecycle management. In this model, authorization rules are defined independently of the microservice code. This separation allows policies to be reviewed, versioned, and audited without being tied to the specific implementation languages of the microservices. These policies can reside in a dedicated policy repository, which explains the "centralized" in the pattern name, or they can be colocated with the service code in the same repository. The essential aspect is that policies are decoupled from the service code, rather than intertwined with it. The actual evaluation of access decisions still takes place locally to each microservice using an embedded PDP.
+This pattern aims to address the first three drawbacks of the previous pattern — to reduce complexity, improve time to market, and establish governance over policy definitions — by decoupling policy logic from service code and supporting its own lifecycle management. In this model, authorization rules are defined independently of the microservice code. This separation allows policies to be reviewed, versioned, and audited without being tied to the specific implementation languages of the microservices. These policies can reside in a dedicated policy repository, which explains the "centralized" in the pattern name, or they can be colocated with the service code in the same repository. The essential aspect is that policies are decoupled from the service code, rather than intertwined with it. The actual enforcement of the access decisions still takes place locally to each microservice.
 
-The PDP can be implemented as a library (e.g., [Casbin](https://casbin.org/)) embedded in the service’s codebase, or as a local sidecar process (e.g., [Open Policy Agent](https://www.openpolicyagent.org/)). Authorization rules are now defined using the PDP’s domain-specific language (e.g., Rego in the case of OPA), rather than being hardcoded into the service logic. Typically, the PDPs with this pattern implement the so-called Policy-Based Access Control (PBAC) approach.
+The PDP can be implemented as a library (e.g., [Casbin](https://casbin.org/)) embedded in the service’s codebase, as a local sidecar process (e.g., [Open Policy Agent](https://www.openpolicyagent.org/)), or even be external, centrally managed PDP — shared across a domain (in domain driven design sense), scoped to a business unit, or truly central depending on organizational needs. Authorization rules are now defined using the PDP’s domain-specific language (e.g., Rego in the case of OPA), rather than being hardcoded into the service logic.
 
 ![Centralized Service-Level Access Control with embedded PDP](../assets/Centralized_Service_Level_Access_Control_with_embedded_PDP.svg)
 
-The microservice continues to act as the PEP, calling into the local PDP to make access decisions during request handling. To make an authorization decision, the PDP requires attributes, which may either be available within the service or retrieved from external sources (PIPs). Some PDPs support data-fetching logic within the policy itself, allowing them to directly retrieve the necessary attributes at runtime. This is represented by 1 and 2 in the diagram above. Both connections are just an abstraction and denote logic communication paths.
+The microservice continues to act as the PEP, calling into the PDP to make access decisions during request handling. To make an authorization decision, the PDP requires attributes, which — depending on the PDP deployment options mentioned above — may either be available within the service or retrieved from external sources (PIPs). Some PDPs support data-fetching logic within the policy itself, allowing them to directly retrieve the necessary attributes at runtime. This is represented by 1 and 2 in the diagram above. Both connections are just an abstraction and denote logic communication paths.
 
-Although this pattern significantly improves maintainability and consistency of access control logic, it introduces some new challenges that are worth considering, and does not resolve all the challenges inherent to the previous pattern.
+Although this pattern significantly improves the maintainability and consistency of access control logic, it also introduces new challenges and does not resolve all the limitations inherent in the previous pattern. It’s important to note that aspects such as performance, failure resilience, and auditability — including support for "before-the-fact" audit — largely depend on the type of PDP and its integration approach (e.g., embedded, sidecar, or external). These trade-offs are discussed separately in [PDP Deployment & Integration Options](#pdp-deployment--integration-options).
 
 #### Pros
 
 * **Policy governance:** Policies can be centrally defined, versioned, reviewed, and audited, independent of the service’s implementation language.
 * **Policy layering:** The model allows for both global (e.g. security team–defined) and local (e.g. service team–defined) policies to coexist. This enables clearer separation of concerns and better alignment with organizational structure and responsibilities.
-* **Good performance:** Authorization decisions are computed locally, either in-memory (for library-based PDPs) or by a co-located sidecar PDP (communicated with over localhost), resulting in negligible latency.
 * **Improved monitoring:** All decisions can be consistently logged and monitored, assuming proper instrumentation.
 * **Team autonomy:** Teams remain responsible for their services and their policies, with local enforcement and minimal external dependencies. This aligns well with independent team ownership and domain-driven design principles.
-* **Failure isolation:** Services remain resilient as long as required decision attributes are locally available. No central dependency for decision evaluation.
 * **Enhanced testability:** Authorization logic can be tested independently of the microservice business logic.
-
 
 #### Cons
 
 * **Policy distribution complexity:** Policies are now decoupled from the code, so mechanisms are needed to deploy the correct version of each policy to the appropriate service instances.
 * **Context sharing:** PDPs do not inherently have access to the microservice context. Developers must design mechanisms to assemble and pass the right attributes into the PDP for evaluation.
-* **Limited auditability:** Since decisions remain distributed, "before-the-fact" questions—like "Who has access to what and when?" remain difficult to answer system-wide.
 * **Coverage gaps:** Some frameworks expose endpoints by default, often without offering hooks for policy enforcement. Teams may also just forget to add the required logic to some endpoints. Combined with poor or misleading documentation, this can result in unintentionally exposed functionality and missed access control. Common examples include health and metrics endpoints (e.g., Spring Boot Actuator), auto-generated documentation routes (e.g., FastAPI or OpenAPI UIs), or static routes in frameworks like e.g. Express.js.
 * **Incomplete enforcement observability:** While policy decisions are consistently logged, there’s often no visibility into whether those decisions were correctly enforced across all code paths. Missing instrumentation or scattered enforcement logic makes it difficult to validate effective protection, investigate incidents, analyze system-wide access patterns or detect abuse.
 
 Due to these remaining gaps, "accept by default" behaviors remain a real risk, leading to broken access control vulnerabilities.
 
-### Centralized Service-Level Access Control with external PDP
-
-This pattern extends the previous one and aims to address not only the "Hardcoded Rules," "Code Against the Role," and policy governance issues from the "Decentralized Service-Level Access Control" pattern, but also the limitation of "Limited auditability". As before, policies are managed centrally - meaning they are defined independently of the service code, typically in a shared repository and subject to versioning, review, and approval processes. However, unlike the previous pattern where evaluation happens locally via an embedded PDP, here access decisions are made by an external PDP. "External" in this context means that the PDP is not embedded within the service but runs as a separate service, which the microservices communicate with at runtime. This PDP may be shared across a domain (in domain driven design sense), scoped to a business unit, or truly central depending on organizational needs.
-
-![Centralized Service-Level Access Control with external PDP](../assets/Centralized_Service_Level_Access_Control_with_external_PDP.svg)
-
-As with the previous pattern, authorization rules are expressed using the PDP’s domain-specific language. However, this pattern supports a broader range of PDP types. In addition to Policy-Based Access Control (PBAC) systems such as OPA or [XACML](https://www.oasis-open.org/committees/tc_home.php?wg_abbrev=xacml)-based engines, it also accommodates Relationship-Based Access Control (ReBAC) systems like [SpiceDB](https://authzed.com/spicedb) or [OpenFGA](https://openfga.dev/), which trace back to the [Zanzibar paper from Google](https://research.google/pubs/zanzibar-googles-consistent-global-authorization-system/) as well as [Next-Generation Access Control (NGAC)](https://webstore.ansi.org/standards/incits/incits5652020) approaches. Unlike PBAC systems, which typically operate on stateless policy evaluations, ReBAC and NGAC systems rely on dedicated data stores to manage authorization models or object graphs, which are central to how decisions are calculated.
-
-Each microservice continues to act as the PEP, calling the central PDP during request handling to obtain access decisions. The PDP requires relevant attributes to evaluate access. In PBAC systems, these attributes may either be passed in by the service or fetched by the PDP itself, depending on its capabilities. ReBAC and NGAC systems usually expect most relevant attributes and relationships to be stored in their internal databases, though some (such as SpiceDB, or OpenFGA already referenced above) allow limited attribute injection at request time.
-
-Although this pattern improves observability and supports a broader range of access control models, it introduces its own trade-offs and does not eliminate all challenges found in the previous pattern.
-
-#### Pros
-
-* **Policy governance:** Policies can be centrally defined, versioned, reviewed, and audited, independent of the service’s implementation language.
-* **Policy layering:** The model allows for both global (e.g. security team–defined) and local (e.g. service team–defined) policies to coexist. This enables clearer separation of concerns and better alignment with organizational structure and responsibilities.
-* **Improved monitoring:** All decisions can be consistently logged and monitored, assuming proper instrumentation.
-* **Team autonomy:** Teams remain responsible for their services and their integration with the PDP. This aligns well with independent team ownership and domain-driven design principles.
-* **Support for "before-the-fact" audit:** Particularly with ReBAC and NGAC systems as PDP, authorization models allow querying the existing access rights, making answering the corresponding questions a simple game.
-* **Support for additional PDP models:** This pattern enables the use of a broader set of access control models, including ReBAC and NGAC systems, which may better fit for a given business context.
-
-#### Cons
-
-* **Policy distribution complexity:** Policies are managed independently of service code, and the PDP may support multiple services and domains. Ensuring the correct policy version is applied consistently can be complex.
-* **Context sharing:** PDPs do not inherently have access to service context. Mechanisms must be designed to assemble and pass the right attributes into the PDP for evaluation and in case of the ReBAC/NGAC systems to build the actual authorization model.
-* **Performance overhead:** Network hops between the microservice and the external PDP introduce latency and a potential point of contention under high load.
-* **Incomplete enforcement observability:** While policy decisions are consistently logged by the PDP, there’s still limited visibility into whether those decisions were enforced correctly in the service code. Instrumentation gaps can hinder detection of abuse, validation of protections, and system-wide access analysis.
-* **Coverage gaps:** There is no guarantee that every service or endpoint consistently integrates with the central PDP. Some frameworks expose endpoints by default, often without offering hooks for policy enforcement. Teams may also just forget to add the required logic to some endpoints. Combined with poor or misleading documentation, this can result in unintentionally exposed functionality and missed access control.
-* **Failure impact:** If the external PDP is unavailable or slow, service responsiveness may degrade or fail entirely unless fallbacks are in place.
-
-As with the previous patterns, some gaps remain — particularly around enforcement coverage and observability — which can result in "accept by default" behaviors and ultimately lead to broken access control vulnerabilities.
-
 
 ### Edge-Level Authorization (Classic)
 
-This pattern aims to address several shortcomings of service-level access control patterns, particularly inconsistent enforcement, policy sprawl, and limited observability. Instead of tying authorization logic on the level of each service, access control is moved to the system’s perimeter — typically implemented via API gateways, ingress controllers, or reverse proxies.
+This pattern aims to address several shortcomings of service-level access control patterns, particularly inconsistent enforcement, policy sprawl, and limited observability. Instead of tying PEP related logic in each service, access control is moved to the system’s perimeter — typically implemented via API gateways, ingress controllers, or reverse proxies.
 
 ![Edge-Level Authorization (Classic)](../assets/Edge_Level_Authorization_Classic.svg)
 
-Since authorization must follow authentication, this pattern tightly couples authentication and authorization at the network boundary. Gateways or proxies serve as the Policy Enforcement Point (PEP), and either evaluate policies locally (using embedded logic or libraries, similar to the “centralized with embedded PDP” pattern) or delegate decisions to an external Policy Decision Point (PDP) (as in the “centralized service-level access control” pattern).
+Since authorization must follow authentication, this pattern tightly couples authentication and authorization at the network boundary. Gateways or proxies serve as the PEP, and either evaluate policies locally, using embedded logic, or delegate decisions to an external PDP.
 
-Since all external traffic flows through the edge component, this is the first pattern that guarantees every inbound request is observed and subject to access control logic.
+All external traffic flows through the edge component, making this the first pattern that guarantees every inbound request is observed and subject to access control logic. As with the previous pattern, aspects such as performance, failure resilience, and auditability are not covered here but are discussed in [PDP Deployment & Integration Options](#pdp-deployment--integration-options) instead.
 
 #### Pros
 
 * **Consistent enforcement:** All inbound requests pass through a centralized enforcement point, ensuring uniform application of policies and reducing the likelihood of unprotected endpoints ("no accept by default").
 * **Policy governance:** Policies can be centrally defined, versioned, reviewed, and audited, independent of the service’s implementation language.
+* **Policy layering:** The model allows for both global (e.g. security team–defined) and local (e.g. service team–defined) policies to coexist. This enables clearer separation of concerns and better alignment with organizational structure and responsibilities.
 * **Best observability:** All external access attempts are visible and can be logged centrally, supporting effective monitoring, alerting, and forensics.
-* **Support for "before-the-fact" audit:** Particularly with ReBAC and NGAC systems as PDP, authorization models allow querying the existing access rights, making answering the corresponding questions a simple game.
 
 #### Cons
 
+* **Socio-technical challenges:** In many organizations, API gateways are operated by infrastructure or platform teams, meaning development teams cannot directly manage authorization policies or authentication configurations. This separation of responsibilities requires close coordination between developers and operations/security, which often reduces delivery velocity due to communication and process overhead, especially in complex ecosystems with many roles, evolving access control rules, and the need for flexible authentication flows.
+* **Policy distribution complexity:** Policies are decoupled from the code, so mechanisms are needed to deploy the correct version of each policy for the appropriate service instances.
 * **Authentication limitations:** Edge components only support a single authentication configuration per listener or route group. Supporting multiple identity providers, per-endpoint authentication flows, or more advanced patterns—such as dynamic consent, step-up authentication, or conditional logic based on subject actions — is difficult or impossible without custom logic or deep integration.
-* **Lack of contextual inputs:** Edge components only have access to request-level attributes (e.g., headers, paths, IPs). This makes it difficult to evaluate fine-grained, object-level, or business-context-sensitive access decisions.
+* **Context sharing:** Edge components only have access to request-level attributes (e.g., headers, paths, IPs). This makes it difficult to evaluate fine-grained, object-level, or business-context-sensitive access decisions.
 * **Enforcement blind spots and defense-in-depth violations:** Since the edge only governs ingress traffic, any internal traffic (e.g., service-to-service calls) or network misconfigurations may bypass enforcement entirely - violating the defense-in-depth principle and creating a single point of failure.
-* **Performance overhead:** Delegating decisions to an external PDP introduces additional network hops, which may impact latency-sensitive applications.
-* **Socio-technical challenges:** In many organizations, API gateways are operated by infrastructure or platform teams, meaning development teams cannot directly manage authorization policies or authentication configurations. This separation of responsibilities requires close coordination between developers and operations/security, which often reduces delivery velocity due to communication and process overhead, especially in complex ecosystems with many roles and evolving access control rules and the need for flexible authentication flows.
 
 ### Edge-Level Authorization (Modern)
 
-This pattern evolves the classic edge-level authorization approach by combining multiple established patterns, such as centralized PDPs, identity propagation mechanisms, and contextual data injection, to overcome its key limitations.
-
-While enforcement still occurs at the perimeter via proxies or gateways, this approach allows per-service customization through service-specific rules — declarative definitions of how identity and context are gathered, how authorization is performed, and how decisions are propagated — forming explicit *authorization contracts*. These contracts manifest as structured, signed data (e.g., JWT claims or enriched signed headers) that the edge proxies or gateways relay to downstream services. This explicit propagation of authorization context ensures that internal service-to-service calls rely on a trusted, verifiable authorization boundary, addressing common concerns around enforcement blind spots and defense-in-depth violations typically associated with edge-only models. By making authorization an explicit API-level contract, teams can confidently decentralize enforcement without creating single points of failure or gaps in access control.
+This pattern evolves the classic edge-level authorization approach to overcome its key limitations. While enforcement still occurs at the perimeter via proxies or gateways, this approach allows per-service customization through service-specific rules — declarative definitions of how identity and context are gathered, how authorization is performed, and how decisions are propagated — forming explicit *authorization contracts*. These contracts manifest as structured, signed data (e.g., JWT claims or enriched signed headers) that the edge proxies or gateways relay to downstream services. This explicit propagation of authorization context ensures that internal service-to-service calls rely on a trusted, verifiable authorization boundary, addressing common concerns around enforcement blind spots and defense-in-depth violations typically associated with edge-only models. By making authorization an explicit API-level contract, teams can confidently decentralize enforcement without creating single points of failure or gaps in access control.
 
 ![Edge-Level Authorization (Modern)](../assets/Edge_Level_Authorization_Modern.svg)
 
-Instead of embedding rigid policy logic or centralizing control in infrastructure teams, this pattern emphasizes composability, autonomy, and observability, enabling each team to define how their endpoints are protected, while still benefiting from centralized governance and enforcement guarantees.
+Instead of embedding rigid policy logic or centralizing control in infrastructure teams, this pattern emphasizes composability, autonomy, and observability, enabling each team to define how their endpoints are protected, while still benefiting from centralized governance and enforcement guarantees. As with the previous pattern, aspects such as performance, failure resilience, and auditability are not covered here but are discussed in [PDP Deployment & Integration Options](#pdp-deployment--integration-options) instead.
 
 #### Pros
 
 * **Consistent enforcement:** Uniform application of policies at a centralized point prevents unprotected or overlooked endpoints.
 * **Policy governance:** Policies remain versioned, reviewed, and auditable, often authored centrally but can be referenced declaratively in service-specific contracts.
 * **Best observability:** All external access attempts are visible and can be logged centrally, supporting effective monitoring, alerting, and forensics.
-* **Support for "before-the-fact" audit:** Particularly with ReBAC and NGAC systems as PDP, authorization models allow querying the existing access rights, making answering the corresponding questions a simple game.
 * **Rapid prototyping:** Through authorization contracts, teams can experiment with different authorization models (e.g., embedded JWT claims, header-based roles, etc.) without relying on the infrastructure components.
-* **Fine-grained context:** The proxy can fetch contextual data from arbitrary PIPs, enabling context-sensitive decisions based on domain-specific attributes, object metadata, or subject state.
+* **Context sharing:** The proxy can fetch contextual data from arbitrary PIPs, enabling context-sensitive decisions based on domain-specific attributes, object metadata, or subject state.
 * **Service autonomy:** Authorization contracts empower microservice teams to define their own access control needs declaratively, supporting domain-driven service ownership without duplicating enforcement logic.
-* **Protocol-agnostic identity propagation:** The system can rewrite identity and authorization data into formats that match each service’s expectations (e.g., structured JWTs, plain or signed headers), decoupling service specific logic from authentication or authorization protocols.
-* **Secure by Default:** The use of declarative contracts and centralized enforcement reduces misconfiguration risks and prevents implicit access grants.
+* **Authorization context propagation:** The system can rewrite identity and authorization responses from the PDP into formats that match each service’s expectations (e.g., structured JWTs, plain or signed headers), decoupling service-specific logic from authorization protocols.
+* **Secure by default:** The use of declarative contracts and centralized enforcement reduces misconfiguration risks and prevents implicit access grants.
 
 #### Cons
 
-* **Performance overhead:** Similar to the classic pattern, delegating authorization to an external PDP introduces network latency and dependency on additional services. Embedding the PDP directly into the edge-level proxy or gateway can mitigate this, but it shifts the cost to CPU usage and IO contention — which may impact proxy throughput under high request rates or complex policies.
-* **Policy distribution complexity:** Ensuring the correct version of a policy is evaluated in context of the specific service version requires additional coordination. This mainly depends on PDP capabilities and tooling.
-* **Operational complexity:** While contracts empower teams with autonomy, effective governance requires clear guidelines and automated validation tools to prevent misconfiguration or misuse.
-* **Dependency sprawl:** Accessing external PIPs or custom APIs adds more components to the system. Without careful management through standardized logging and robust tooling, this can lead to delays or inconsistent visibility.
+* **Policy distribution complexity:** Ensuring the correct version of a policy is evaluated in the context of the specific service version requires additional coordination. This mainly depends on PDP capabilities and tooling.
+* **Contract governance:** While authorization contracts empower teams with autonomy, it requires clear guidelines and automated validation tools to prevent misconfiguration or misuse.
+
+There is also a variant of this pattern — **"Side-Car-Proxy-Based Authorization"** — where the PEP is deployed alongside the microservice as a dedicated proxy, intercepting and controlling all inbound traffic to that service. This approach shares many of the same advantages and drawbacks as the edge-level model. However, operational complexity increases, as each service gains an additional moving part. Furthermore, observability becomes fragmented, since monitoring is limited to individual services unless all services in a given context adopt the same pattern.
+
+
+### PDP Deployment & Integration Options
+
+The choice of PDP deployment — embedded, as a sidecar, or external — significantly impacts performance, auditability, and supported authorization models. The table below summarizes the key trade-offs:
+
+| Aspect                | Embedded PDP          | Side-Car PDP              | External PDP                                       |
+|-----------------------|-----------------------|---------------------------|----------------------------------------------------|
+| Location              | as a library          | as local side-car process | separate PDP service                               |
+| Latency               | almost no impact      | very low latency          | higher latency due to network hops                 |
+| Before the Fact Audit | limited               | limited                   | possible system wide                               |
+| Access Control Models | PBAC, e.g. Casbin     | PBAC, e.g. OPA            | PBAC, ReBAC, and NGAC (e.g. OPA, OpenFGA, SpiceDB) |
+| Dependencies          | none (self-contained) | none (self-contained)     | Relies on PDP service availability                 |
+
+
+#### On Data Source Integration
+
+The need to fetch or inject data required for policy evaluation introduces operational challenges across all authorization patterns — including [Decentralized Service-Level Authorization](#decentralized-service-level-authorization). Depending on the PDP deployment style, this responsibility may lie with the PEP (e.g., a service or edge proxy) or the PDP itself. Accessing PIPs at runtime can complicate network configurations, conflict with segmentation or firewall policies, and broaden the system’s attack surface. These concerns require careful architectural consideration, which is also something the next section aims to support you with.
+
 
 ## Decision Dimensions for Authorization Patterns
 
-The discussion of [Authorization Patterns](#authorization-patterns) might suggest that [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided due to drawbacks like scattered logic and limited auditability. However, this is not universally true. The suitability of an authorization pattern depends primarily on the given system context, shaped by different dimensions that guide the design of authorization systems that are secure, manageable, and responsive. Therefore, this section introduces a framework for selecting authorization patterns by analyzing these key dimensions: **data characteristics** (locality, cardinality, freshness), **policy characteristics** (ownership, change rate), **distribution strategies** for data and policies, and **performance** considerations like latency and resource contention.
+The discussion of [Authorization Patterns](#authorization-patterns) might suggest that [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided due to drawbacks like scattered logic and limited auditability. However, this is not universally true. The suitability of an authorization pattern depends primarily on the given system context, shaped by different dimensions that guide the design of authorization systems, making the entire system secure, manageable, and responsive. Therefore, this section introduces a framework for selecting authorization patterns by analyzing these key dimensions: **data characteristics** (locality, cardinality, freshness), **policy characteristics** (ownership, change rate), **distribution strategies** for data and policies, and **performance** considerations like latency and resource contention.
 
 ### Policy Characteristics
 
@@ -660,6 +649,8 @@ That way, the output cardinality can be grouped into three levels:
 
 As can be seen from the discussion of the [Authorization Patterns](#authorization-patterns), approaches based on embedded or external PDPs face the following common challenges: how to distribute relevant data and policies to the PDP. This subsection outlines three primary strategies for distributing data to PDPs, each having distinct trade-offs, and their suitability depends on the specific PDP type (e.g., PBAC, ReBAC, or NGAC), the system’s requirements for performance, scalability, and data freshness.
 
+Each strategy addresses different operational challenges. While out-of-band push introduces more complexity, it remains essential in scenarios where repeated on-demand fetching or large-scale request-time injection become bottlenecks. No single strategy fits all use cases — most mature systems combine them based on data characteristics, performance needs, and architectural constraints.
+
 #### On-Demand Data Pull
 
 The PDP fetches data from PIPs at the time of policy evaluation, typically via APIs or database queries. PDPs supporting this option typically allow for configurable caching of the pulled data. 
@@ -688,6 +679,7 @@ Data is proactively sent to the PDP in advance, and stored in memory or a local 
 
 * Improves performance by storing data locally (e.g., in cache or a local database), enabling faster policy evaluation without network overhead.
 * Enhances resilience, as the PDP can operate independently of PIP availability, allowing PDP instances to remain lightweight and focused on evaluation, which improves their scalability.
+* ReBAC/NGAC PDP types typically require access to complete relationship graphs or contextual data sets, which are infeasible to retrieve on-demand or pass inline. This strategy enables those models.
 
 **Cons**
 
@@ -795,7 +787,7 @@ The following factors strongly influence architecture decisions — such as PDP 
 
 * **PDP integration overhead:** Overheads include network latency (ranging from ca. 300µs on loopback to >200ms for cross-region communication), DNS resolution, TLS handshake, and data serialization/deserialization. Protocol choices (e.g., HTTP/1.1 vs. HTTP/2 vs. gRPC) can further influence this. For in-process PDPs, these costs are minimized, though serialization costs may still apply.
 
-* **Runtime resource contention:** ("Busy Neighbor" effect) PDPs are typically CPU- and memory-intensive. Co-located resource-hungry processes can degrade performance significantly if compute and memory isolation aren’t enforced.
+* **Runtime resource contention:** ("Busy Neighbor" effect) PDPs are typically CPU- and memory-intensive. Co-located resource-hungry processes can significantly degrade performance if compute and memory isolation aren’t enforced. This is especially relevant when integrating a PDP into an edge component (either embedded or as a sidecar), which is often optimized for high IOPS throughput. In such cases, embedding a PDP introduces trade-offs between CPU-bound policy evaluation and I/O-heavy request processing.
 
 * **Caching and memoization:** Many PDPs implement decision caching or partial evaluation to avoid repeated computation for deterministic inputs. These optimizations can reduce latency but can lead to outdated decisions and require robust cache invalidation logic.
 
@@ -807,41 +799,67 @@ Additional considerations include:
 
 
 
-### Pattern Selection and Data Distribution Mapping
-
-This subsection maps the data characteristics dimensions to recommended authorization patterns and data distribution strategies, providing a decision framework for microservice architectures. The mapping considers the trade-offs of each pattern and outlines the capabilities of PEPs and PDPs.
-
-**Service-Local Data**
-
-  * **Recommended Pattern:** [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) or [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp). These patterns are ideal regardless of data cardinality or change rate, as the data’s isolated scope mitigates drawbacks like auditability or scattered logic.
-  * **Data Distribution Strategy:** [Request-time data injection](#request-time-data-injection) is preferred, as the microservice (acting as the PEP) has direct access to local data and can include it in decision requests to the PDP.
-  * **Considerations:** Both recommended patterns offer simplicity and autonomy, while embedded PDPs provide governance without external dependencies in addition. Request-time injection keeps complexity low, as no external PIPs are involved.
-
-**Domain-Level Data and Organization-Level Data with Medium or Low Cardinality**
-
-  * **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns ensure consistent enforcement and auditability across shared data scopes.
-  * **Data Distribution Strategy:** [on-demand data pull](#on-demand-data-pull) or [out-of-band data push](#out-of-band-data-push) are suitable. Both approaches ensure freshness of data, with out-of-band data push also optimizing performance by storing it locally in the PDP eagerly.
-  * **Considerations:** Embedded PDPs reduce latency, while external PDPs, such as those implementing ReBAC approaches, support advanced capabilities, such as before-the-fact-audit. [Out-of-band data push](#out-of-band-data-push) requires synchronization pipelines, and [on-demand data pull](#on-demand-data-pull) needs robust PIP availability handling.
-
-**Domain-Level Data and Organization-Level Data with High Cardinality**
-
-  * **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns handle complex, shared data while supporting dynamic attribute inclusion.
-  * **Data Distribution Strategy:** If [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp) is used, [Request-time data injection](#request-time-data-injection) is essential, as high-cardinality data cannot be fully preloaded due to PDP memory limits, so the PEP must collect attributes from PIPs and include them in the decision request. ReBAC, or NGAC PDP implementations typically address that limitation and can be used as [External PDP](#centralized-service-level-access-control-with-external-pdp). In that case, [out-of-band data push](#out-of-band-data-push) approach can be used. 
-  * **Considerations:** In centralized models, microservices (as PEPs) handle PIP integration, increasing complexity. In edge-level models, the edge layer manages data enrichment, simplifying microservices but requiring robust edge configuration. Request-time injection ensures scalability but demands reliable PEP data collection.
-
 ## Practical Considerations & Recommendations
 
-### Authorization Patters Implications on Authentication Patterns
+Having covered everything so far, we are now ready to get into the practical part — namely: when do which authorization patterns make sense, how do they influence one another (as relying on just a single pattern rarely works in practice), and what the implications of these choices are in real-world systems.
 
-TODO: address the interplay between authentication and authorization patterns, explaining how authentication mechanisms (e.g., edge-level vs. service-level) influence authorization choices and vice versa
+### Authorization Patterns Recommendations
+
+This subsection maps the [decision dimensions](#decision-dimensions-for-authorization-patterns) discussed earlier to the [authorization patterns](#authorization-patterns) described previously, using trade-offs as the primary guiding principle. While multiple patterns may technically be applicable in a given context, some introduce security, operational, performance, or maintenance overheads that make them less desirable in practice. The recommendations below aim to balance these concerns, helping to avoid common pitfalls and promote architectural consistency. Deviations may be valid in specific cases, but should be intentional — not accidental.
+
+![Recommended Authorization Patterns](../assets/Authorization_Pattern_Recommendation.svg)
+
+The diagram above illustrates the recommended patterns based on the given dimensions.
+
+* If the [input data locality](#input-data-locality) required for the decision is service-local, [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) is ideal — regardless of other dimensions — since the data’s isolated scope avoids all the drawbacks discussed earlier.
+
+* If the [input data locality](#input-data-locality) extends beyond Service-Local — i.e., the same data is shared across multiple services — and the [output data cardinality](#output-data-cardinality) is high while using [Authorization Filters](#policy-output-data-handling-patterns) is not feasible, then Centralized Service-Level Access Control, either with an [embedded PDP](#centralized-service-level-access-control-with-embedded-pdp) or an [external PDP](#centralized-service-level-access-control-with-external-pdp), is better suited to the context.
+
+* In all other cases, [Modern Edge-Level Access Control](#edge-level-authorization-modern) tends to offer the best trade-offs.
+
+* [Classic Edge-Level Access Control](#edge-level-authorization-classic) may still be suitable when input data is organization-wide, output cardinality is low, and all relevant data is either [pulled by the PDP at request time](#on-demand-data-pull) at request time or [pushed to the PDP out-of-band](#out-of-band-data-push) in advance.
+
+**Note:** Pattern selection is not an isolated decision. The described patterns form a broader **pattern language**, where one pattern often implies or necessitates the use of another. For instance, selecting [Modern Edge-Level Access Control](#edge-level-authorization-modern) introduces the concept of an "authorization contract", which must be verified within each service. These contracts represent service-local data, and verifying them naturally leads to adopting [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) inside the respective services.
+
+**Example: The Blog Platform**
+
+To illustrate how multiple authorization patterns may compose into a coherent solution, let’s return to the [earlier story of Alice and the blog platform](#a-story-to-ground-the-concepts).
+
+The system defines two access requirements:
+
+* **Listing articles:** Every user is allowed to see the list of available articles, including the title, publication date, author, and a short excerpt.
+* **Reading articles:** Access to the full content depends on the user’s subscription level and the number of full articles already read that day.
+
+These requirements map naturally to different authorization patterns:
+
+* For listing articles, the access logic relies solely on local data stored within the article service. Since the input data is entirely service-local, the [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) pattern is ideal — no orchestration or coordination with other services is required.
+* Reading a full article, however, requires accessing data managed by multiple services: the subscription service (to verify Alice’s plan) and a usage-tracking service (to check her daily quota). Because the input data is not local and the output cardinality is low — the system makes a decision about a single article — [Modern Edge-Level Access Control](#edge-level-authorization-modern) is a better fit. The "authorization contract" introduced here might, for example, look like:
+`{ "requested_article": "<uuid>", "allowed_representation": "<full | excerpt>" }`,
+which then leads to verifying this contract within the article service using [Decentralized Service-Level Access Control](#decentralized-service-level-access-control).
+
+**Example: A Document Management System**
+
+Let’s now shift the service landscape slightly to explore the applicability of the remaining patterns. Imagine Alice now wants to access her employer’s document management system.
+
+* **Listing documents:** Users can only list documents related to the projects, they are a team member of
+* **Reading documents:** Users can only read documents related to the projects, they are a team member of
+
+These map to the following patterns:
+
+* Listing documents requires access to the project members service. Given the typically high output cardinality, Centralized Service-Level Access Control — with either an embedded or external PDP — is the best fit.
+* While reading a document could use the same pattern, [Modern Edge-Level Access Control](#edge-level-authorization-modern) is a better fit. It simplifies the implementation of the document-rendering service and ensures that all exposed endpoints — not just the document delivery one — are consistently subject to access control.
+
+
+
+Last but not least, the [performance](#performance) requirements and [input data cardinality](#input-data-cardinality) strongly influence the PDP choice — PBAC, ReBAC, or NGAC — and integration approach — embedded vs. external. However, this decision may also be shaped by the available tooling for [policy](#policy-distribution-strategies) and [policy input data](#policy-input-data-distribution-strategies) distribution — which brings us to the next section.
 
 ### Data and Policy Distribution in Practice
 
-Building on the concepts introduced in [Data Distribution Strategies](#data-distribution-strategies) and [Policy Distribution Strategies](#policy-distribution-strategies), this section demonstrates how the [out-of-band data push](#out-of-band-data-push) and [out-of-band delivered policies](#out-of-band-delivered-policies) approaches translate into concrete architectures in real-world PDP deployments. These architectures — whether for embedded PDPs or standalone PDP services — incorporate specific control-plane components, described below, that manage initialization, configuration, and continuous updates to ensure that PDPs remain synchronized and deliver accurate authorization decisions in dynamic environments.
+Building on the concepts introduced in [Data Distribution Strategies](#data-distribution-strategies) and [Policy Distribution Strategies](#policy-distribution-strategies), this section demonstrates how the [out-of-band data push](#out-of-band-data-push) and [out-of-band delivered policies](#out-of-band-delivered-policies) approaches translate into concrete architectures for real-world PDP deployments. These architectures — whether based on embedded PDPs or standalone PDP services — incorporate specific control-plane components, described below, to manage initialization, configuration, and runtime updates, ensuring that PDPs remain synchronized and deliver accurate authorization decisions in dynamic environments.
 
 * **Configuration Repository:** Stores the desired configuration for each PDP instance, including detailed references to required policies — such as their repository locations and version information — as well as PIP integration settings, including endpoints, supported protocols, credentials, and other communication-specific parameters.
 * **Distributor:** A control-plane component responsible for distributing configuration that enables Aggregators to obtain and apply data and policy artifacts. It retrieves configuration from the Configuration Repository and monitors it for changes. Whenever an Aggregator connects or updated configuration becomes available, the Distributor pushes the applicable configuration to that Aggregator. Depending on the implementation, it may also act as a relay for data updates from PIPs, forwarding only the relevant updates to each Aggregator based on their configured subscriptions.
-* **Aggregator:** A control-plane component responsible for configuring a PDP instance with the required policies and data. The Aggregator acts as a client of the Distributor, connecting to it to receive its configuration and any updates. Based on this configuration, it retrieves policies and data from designated sources — policy repositories for policies and PIPs for data — and monitors these sources to ensure the PDP remains synchronized with the desired state. Monitoring of policies depends on the capabilities of the policy repository and typically involves polling. Data monitoring may occur through the Distributor, which can relay relevant updates received from an event distribution system — such as message buses or webhooks — through which PIPs distribute updates. Alternatively, the Aggregator may monitor PIPs directly.
+* **Aggregator:** A control-plane component responsible for configuring a PDP instance with the required policies and data. The Aggregator acts as a client of the Distributor, connecting to it to receive its configuration and any updates. Based on this configuration, it retrieves policies and data from designated sources — policy repositories for policies and PIPs for data — and monitors these sources to ensure the PDP remains synchronized with the desired state. Monitoring of policies depends on the capabilities of the policy repository and typically involves polling. For data updates, Aggregators may either pull directly from PIPs or receive change notifications via decoupled mechanisms such as message buses or webhooks. Event-based delivery is often preferred due to its scalability and resilience, but it's not strictly required.
 
 The following setup illustrates this approach, showing how a PDP can be provisioned with policies and data while supporting runtime updates.
 
@@ -856,6 +874,78 @@ The following setup illustrates this approach, showing how a PDP can be provisio
 7. Resulting update events are sent to the event distribution system and received by the interested Aggregators.
 8. Aggregator updates the PDP’s data sets accordingly.
 
+Similar setups have been successfully adopted in large-scale production environments. For example, Netflix presented a comparable design at KubeCon 2017 ([video](https://www.youtube.com/watch?v=R6tUNpRpdnY), [slides](https://conferences.oreilly.com/velocity/vl-ca-2018/public/schedule/detail/66606.html)). Their terminology differs slightly: the component shown as *Aggregator* in the diagram above is called the "AuthZ Agent", and instead of letting each agent independently collect required data, Netflix introduced a central "Super PIP" (which they call the "Aggregator") positioned between the event distribution system and the agents. This component preprocesses and routes relevant data updates, while the AuthZ Agents remain responsible for configuring and updating the embedded PDP instances.
+
+A known open-source project that implements a similar architecture is [OPAL - Open Policy Administration Layer](https://github.com/permitio/opal). Compared to the diagram above, OPAL delegates responsibility for relaying data updates to the *Distributor*, which pushes relevant changes to each *Aggregator* instance.
+
+Although both examples use [OPA](https://www.openpolicyagent.org/) as the PDP, the architectural principles described here are not specific to OPA. The control-plane components — configuration repository, distributor, aggregator — and the mechanisms for policy and data provisioning apply equally to other PDP types — PBAC, ReBAC, NGAC — and deployment models.
+
+However, the [out-of-band data push](#out-of-band-data-push) approach introduces a key challenge: **ensuring consistency in the face of distributed state updates**.
+
+To illustrate this, consider a microservice (e.g., Service A) that updates its own database after a successful request and emits a corresponding domain event intended to notify PDP-related infrastructure (e.g., an Aggregator via an event bus). If that event is lost in transit, or the Aggregator fails to process it, the PDP’s internal state may become outdated. As a result, future authorization decisions — possibly in other services — may be based on stale or incomplete data, leading to incorrect access grants or denials.
+
+This situation mirrors a classic **distributed transaction problem**: the state change in the microservice and the state change in the PDP must eventually converge, but there's no atomic commit across both systems. Since traditional distributed transactions are often impractical or undesirable in such architectures, patterns like [Saga](https://microservices.io/patterns/data/saga.html) can help mitigate these risks.
+
+### Interplay Between Authorization, Authentication Patterns, and Zero Trust
+
+Authentication (who you are) and authorization (what you're allowed to do) are closely related but serve different purposes in secure service architectures. The choice of one influences the requirements of the other — and both must be aligned to implement Zero Trust, a model that treats every access request as untrusted by default.
+
+
+
+* [Service-Level Embedded Authentication](#service-level-embedded-authentication) limits the usage of authorization patterns to [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) only and makes it impossible to implement [identity propagation](#identity-propagation-patterns) in a secure way — what a particular principal is, is only defined in the context of a particular service. This is also the reason, why Centralized Service-Level Access Control with [embedded](#centralized-service-level-access-control-with-embedded-pdp) or [external PDP](#centralized-service-level-access-control-with-external-pdp) is impractical. Both expect it to be a shared definition within a given system context. Can be combined with [Edge-Level Authentication](#edge-level-authentication) and [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) to support workload authentication. 
+
+* [Service-Level Code-Mediated Authentication](#service-level-code-mediated-authentication) extends the authorization options beyond those possible for Service-Level Embedded Authentication. It enables the usage of Centralized Service-Level Access Control with [embedded](#centralized-service-level-access-control-with-embedded-pdp) and [external PDP](#centralized-service-level-access-control-with-external-pdp). Possible secure [identity propagation patterns](#identity-propagation-patterns) are limited to [External Identity Propagation](#external-identity-propagation) and [Token Exchange-Based Identity Propagation](#token-exchange-based-identity-propagation). The former is not always feasible, especially when asynchronous communication patterns are used for inter-service communication. And the latter increases the complexity and maintenance of the particular services. Support for multi-principal subjects as described in [On Subject, Principals and Identities](#on-subjects-principals-and-identities) section is typically hard to achieve as most of the existing frameworks used to implement Service-Level Embedded Authentication don't support this and require custom code. Can be combined with [Edge-Level Authentication](#edge-level-authentication) and [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) to support workload authentication.
+
+* [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) is similar to [Service-Level Code-Mediated Authentication](#service-level-code-mediated-authentication) regarding [identity propagation](#identity-propagation-patterns) and authorization options, extends the latter however to the support of [Edge]
+
+#### Zero Trust Foundations
+
+Zero Trust fundamentally changes how authentication and authorization are handled. Instead of assuming trust based on network location or actor type, it enforces strict verification and minimal access at all times:
+
+* **Never Trust, Always Verify**: Every request is authenticated and authorized, regardless of origin.
+* **Least Privilege**: Access is narrowly scoped and time-limited.
+* **Continuous Validation**: Trust is reassessed continually using real-time signals like user behavior or device state.
+
+
+#### Zero Trust and Authentication Patterns
+
+Zero Trust requires robust, continuous authentication mechanisms that verify identity at every step. The following authentication patterns are particularly relevant:
+
+* [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication): By offloading authentication to a sidecar proxy, this pattern can enforce consistent authentication policies across services. It also supports workload identity systems like SPIFFE/SPIRE, which provide cryptographically verifiable identities for services, also supporting mutual TLS authentication. This ensures that only authenticated services can communicate, a key requirement in Zero Trust.
+
+* [Edge-Level Authentication](#edge-level-authentication): Centralizing authentication at the system boundary (e.g., via an API gateway) aligns with Zero Trust by providing a single point of control for verifying identity before requests enter the system. When combined with [Protocol-Agnostic Identity Propagation](#protocol-agnostic-identity-propagation), internal services can independently verify identity without blindly trusting upstream components, fulfilling the "always verify" principle.
+
+* [Kernel-Level Authentication](#kernel-level-authentication): This pattern enforces authentication at the transport layer using cryptographic identities (e.g., via IPSec or WireGuard). It provides strong workload identity verification, ensuring that only authenticated services can establish connections. This is a foundational element of Zero Trust networking, as it secures service-to-service communication without relying on network topology.
+
+#### Identity Propagation in Zero Trust
+
+In Zero Trust architectures, identity propagation must be tamper-proof and independently verifiable by each service. The following identity propagation patterns are particularly suited for Zero Trust:
+
+* [Protocol-Agnostic Identity Propagation](#protocol-agnostic-identity-propagation): By transforming external authentication data into a normalized, signed token at the edge, this pattern ensures that internal services can verify identity without relying on external systems. The cryptographic signature provides strong integrity guarantees, preventing tampering or spoofing.
+
+* [Token Exchange-Based Identity Propagation](#token-exchange-based-identity-propagation): Using mechanisms like OAuth2 Token Exchange, services can obtain scoped, short-lived tokens for downstream calls. This limits the exposure of long-lived credentials and ensures that each service interaction is authorized based on the current context.
+
+#### Authorization Patterns in Zero Trust Contexts
+
+The previously discussed [Authorization Patterns Recommendations](#authorization-patterns-recommendations) inherently align with Zero Trust principles — including **least privilege**, **continuous identity verification**, and **context-aware access control**. Rather than introducing Zero Trust as a separate concern, these architectural patterns enforce its core tenets by design.
+
+Here’s how the recommended patterns contribute to a Zero Trust architecture:
+
+* **Decentralized Service-Level Access Control** enables decisions close to the data using strictly local and verifiable context, minimizing reliance on implicit trust.
+* **Centralized Service-Level Access Control** (with embedded or external PDP) allows consistent enforcement across services using shared identity and context, while supporting dynamic and centrally managed policies.
+* **Modern Edge-Level Access Control** applies authorization at the perimeter and issues verifiable contracts, reducing internal trust assumptions and ensuring consistent downstream enforcement.
+
+These patterns, when used in combination, provide a flexible foundation for implementing Zero Trust in distributed systems.
+
+#### Best Practices
+
+To successfully implement Zero Trust across distributed systems:
+
+* Design for Layered Identity Verification: Use consistent, protocol-agnostic identity propagation and cryptographic verification to enable independent trust decisions across services.
+* Favor Central Authentication: When feasible, centralize authentication to improve consistency, observability, and incident response.
+* Choose Authorization Patterns Based on System Needs: Weigh security, latency, scalability, and operational complexity when deciding between edge-level, service-level, or centralized models.
+* Implement Auditing and Monitoring: Logging, traceability, and anomaly detection are essential to enforce and verify Zero Trust assumptions over time.
+
 
 ### Mapping Product Features
 
@@ -864,5 +954,20 @@ How specific OSS projects map to these architectural setups (e.g., how OPAL + OP
 ### Common Pitfalls and Best Practices
 
 TODO: guidance on avoiding common mistakes (e.g., "accept by default" behaviors, misconfigured proxies) and implementing best practices for secure authentication and authorization
+
+
+
+
+**Domain-Level Data and Organization-Level Data with Medium or Low Cardinality**
+
+* **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns ensure consistent enforcement and auditability across shared data scopes.
+* **Data Distribution Strategy:** [on-demand data pull](#on-demand-data-pull) or [out-of-band data push](#out-of-band-data-push) are suitable. Both approaches ensure freshness of data, with out-of-band data push also optimizing performance by storing it locally in the PDP eagerly.
+* **Considerations:** Embedded PDPs reduce latency, while external PDPs, such as those implementing ReBAC approaches, support advanced capabilities, such as before-the-fact-audit. [Out-of-band data push](#out-of-band-data-push) requires synchronization pipelines, and [on-demand data pull](#on-demand-data-pull) needs robust PIP availability handling.
+
+**Domain-Level Data and Organization-Level Data with High Cardinality**
+
+* **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns handle complex, shared data while supporting dynamic attribute inclusion.
+* **Data Distribution Strategy:** If [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp) is used, [Request-time data injection](#request-time-data-injection) is essential, as high-cardinality data cannot be fully preloaded due to PDP memory limits, so the PEP must collect attributes from PIPs and include them in the decision request. ReBAC, or NGAC PDP implementations typically address that limitation and can be used as [External PDP](#centralized-service-level-access-control-with-external-pdp). In that case, [out-of-band data push](#out-of-band-data-push) approach can be used.
+* **Considerations:** In centralized models, microservices (as PEPs) handle PIP integration, increasing complexity. In edge-level models, the edge layer manages data enrichment, simplifying microservices but requiring robust edge configuration. Request-time injection ensures scalability but demands reliable PEP data collection.
 
 

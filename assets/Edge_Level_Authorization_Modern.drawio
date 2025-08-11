@@ -1,4 +1,4 @@
-<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:139.0) Gecko/20100101 Firefox/139.0" version="27.2.0">
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:141.0) Gecko/20100101 Firefox/141.0" version="28.0.7">
   <diagram name="Page-1" id="vSZzm0c0lSDc5pFVxaaF">
     <mxGraphModel dx="1371" dy="887" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
@@ -50,7 +50,7 @@
             <mxPoint x="602.3499999999999" y="110.79999999999995" as="sourcePoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="mYGKsBrjJRizm44qWyRZ-4" value="uses" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" vertex="1" connectable="0" parent="P9exJsjkpcG24izdwx1V-38">
+        <mxCell id="mYGKsBrjJRizm44qWyRZ-4" value="uses" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" parent="P9exJsjkpcG24izdwx1V-38" vertex="1" connectable="0">
           <mxGeometry x="-0.104" y="3" relative="1" as="geometry">
             <mxPoint x="1" as="offset" />
           </mxGeometry>
@@ -102,8 +102,8 @@
         <mxCell id="P9exJsjkpcG24izdwx1V-25" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;startArrow=classic;startFill=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" source="aPNDeGo1sduExx9jBJkK-5" target="aPNDeGo1sduExx9jBJkK-8" edge="1">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="P9exJsjkpcG24izdwx1V-30" value="Ingress Proxy" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=none;fontColor=#6C8EBF;fontStyle=1" parent="1" vertex="1">
-          <mxGeometry x="239" y="30" width="90" height="19" as="geometry" />
+        <mxCell id="P9exJsjkpcG24izdwx1V-30" value="Edge-Component" style="text;html=1;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fillColor=none;fontColor=#6C8EBF;fontStyle=1" parent="1" vertex="1">
+          <mxGeometry x="239" y="30" width="121" height="19" as="geometry" />
         </mxCell>
         <mxCell id="P9exJsjkpcG24izdwx1V-35" value="Rule" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" parent="1" vertex="1">
           <mxGeometry x="615" y="168" width="100" height="50" as="geometry" />
@@ -114,8 +114,11 @@
         <mxCell id="P9exJsjkpcG24izdwx1V-42" value="2" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;" parent="1" vertex="1">
           <mxGeometry x="490" y="360" width="20" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="mYGKsBrjJRizm44qWyRZ-1" value="authorization contract" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1">
+        <mxCell id="mYGKsBrjJRizm44qWyRZ-1" value="authorization contract" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
           <mxGeometry x="474" y="91" width="130" height="20" as="geometry" />
+        </mxCell>
+        <mxCell id="Po_sPxyfhwxTOC_PryQO-1" value="Depending on the PDP deployment and integration option, it can be part of the edge component, e.g. an ingress proxy, run alongside it as a sidecar, or — as shown here — be deployed as a separate service." style="shape=callout;whiteSpace=wrap;html=1;perimeter=calloutPerimeter;position2=0.75;fillColor=#fff2cc;strokeColor=#d6b656;align=left;" vertex="1" parent="1">
+          <mxGeometry x="120" y="250" width="213" height="123" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

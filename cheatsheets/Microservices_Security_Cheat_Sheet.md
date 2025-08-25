@@ -542,38 +542,37 @@ The choice of PDP deployment — embedded, as a sidecar, or external — signifi
 
 The need to fetch or inject data required for policy evaluation introduces operational challenges across all authorization patterns — including [Decentralized Service-Level Authorization](#decentralized-service-level-authorization). Depending on the PDP deployment style, this responsibility may lie with the PEP (e.g., a service or edge proxy) or the PDP itself. Accessing PIPs at runtime can complicate network configurations, conflict with segmentation or firewall policies, and broaden the system’s attack surface. These concerns require careful architectural consideration, which is also something the next section aims to support you with.
 
-
 ## Decision Dimensions for Authorization Patterns
 
-The discussion of [Authorization Patterns](#authorization-patterns) might suggest that [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) should be avoided due to drawbacks like scattered logic and limited auditability. However, this is not universally true. The suitability of an authorization pattern depends primarily on the given system context, shaped by different dimensions that guide the design of authorization systems, making the entire system secure, manageable, and responsive. Therefore, this section introduces a framework for selecting authorization patterns by analyzing these key dimensions: **data characteristics** (locality, cardinality, freshness), **policy characteristics** (ownership, change rate), **distribution strategies** for data and policies, and **performance** considerations like latency and resource contention.
+The discussion of [Authorization Patterns](#authorization-patterns) might suggest that [Decentralized Service-Level Authorization](#decentralized-service-level-authorization) should be avoided due to drawbacks such as scattered logic and limited auditability. However, this is not always the case. The suitability of an authorization pattern depends on the system context. This context can be analyzed along several key dimensions that guide the choice of appropriate patterns and help keep the system secure, manageable, and responsive, as outlined in this section.
 
 ### Policy Characteristics
 
-Policy characteristics define how policies are authored, maintained, and updated, influencing their management and distribution. Two key dimensions, **[ownership](#policy-ownership)** and **[change rate](#policy-change-rate)**, guide these processes, which are critical for operationalizing authorization systems.
+Policy characteristics define how policies are authored, maintained, and updated, influencing their management and distribution. Two key dimensions, [ownership](#policy-ownership) and [change latency](#policy-change-latency), guide these processes, which are critical for operationalizing authorization systems.
 
 #### Policy Ownership
 
-This dimension identifies who owns and maintains a policy, and often correlates with how composable or layered the policy needs to be.
+This dimension identifies who owns and maintains a particular policy. Ownership matters in two ways: it often correlates with how composable or layered the policies need to be, and it also defines governance boundaries, determining who is authorized to create, modify, and deploy policies.
 
 * **Microservice Team:** Policies authored and maintained by the team responsible for a specific microservice. These are typically focused on local enforcement logic and closely tied to internal service semantics. For example, a recommendation service defines request filters that exclude certain products based on internal scoring thresholds or active experiments.
 * **Domain Level:** Policies shared across services within a business domain, often requiring coordination between teams. These policies may be abstracted and reused across multiple services, like a subscription domain enforces business rules about grace periods, usage limits, or billing thresholds that are referenced by billing, customer portal, and notification services.
 * **Central (Organization Level):** Policies governed by a central security, compliance, or platform team. These typically apply across domains or services and provide the foundation upon which more granular policies are built, like an organizational policy that defines acceptable data residency constraints or standard access conditions for administrative APIs.
 
-#### Policy Change Rate
+#### Policy Change Latency
 
-This dimension describes how frequently a policy is expected to change, which has implications for where and how policies should be reviewed, deployed, and versioned.
+This dimension describes how quickly a policy change must be reflected in the system once introduced. It should not be confused with the *frequency* of policy changes (how often they occur), or with [input data freshness](#input-data-freshness) (how quickly attribute updates must be reflected in policy decisions). While policy change frequency influences governance and authoring processes, the latency dimension — the focus of this chapter — defines how fast policies must be deployed and propagated across services to take effect.
 
-* **High:** Frequently changing policies (days to weeks) requiring agile authoring processes, often at the microservice or domain level. Example: A marketing service adjusts promotional offer criteria weekly based on campaign feedback.
-* **Medium:** Policies changing monthly or quarterly, typically at the microservice or domain level. Example: A billing service updates discount policies each quarter based on market trends.
-* **Low:** Stable policies with formal review, typically at the domain or central level. Example: GDPR-driven data access policies updated annually or less frequently.
+* **Immediate:** Policies must take effect as soon as they are changed (seconds to minutes). Example: A financial system introduces a temporary block on a specific payment method due to detected processing errors. The rule itself (block this method) must be enforced immediately across all services to prevent further transactions.
+* **Fast:** Policies should be applied within hours to days. Example: A sales team requests an update to discount eligibility rules for enterprise customers. Once approved and authored, the new policy should be effective by the next business day.
+* **Delayed:** Policies can be applied on a longer timescale (weeks or more). Example: A data retention policy update mandated by new legislation is scheduled for enforcement with the next release.
 
 ### Policy Distribution Strategies
 
-Distributing policies to PDPs ensures they are available for evaluation in microservice architectures. This subsection outlines two primary strategies — **[out-of-band delivered policies](#out-of-band-delivered-policies)** and **[embedded policies](#embedded-policies)** — each with trade-offs affecting performance, scalability, and policy freshness. The choice largely depends on the [policy characteristics](#policy-characteristics), and influences operational workflows, such as testing, rollback, and emergency overrides.
+The [policy change latency](#policy-change-latency) dimension, described in the previous section, defines how quickly policy changes must take effect once introduced. These latency requirements directly influence how policies are delivered to PDPs to ensure they are available for evaluation in the system, which is what this section addresses. Here, we discuss the two primary strategies along with their respective trade-offs.
 
 #### Out-of-Band Delivered Policies
 
-Policies are proactively sent to the PDP and stored locally for evaluation. This strategy suits policies that are owned by microservice or domain teams and tend to have medium to high change rates, requiring agile, incremental updates without disrupting service availability.
+Policies are proactively sent to the PDP and stored locally for evaluation. This strategy suits policies that tend to have immediate to fast change latencies, requiring agile, incremental updates without disrupting service availability.
 
 **Pros:**
 
@@ -582,11 +581,14 @@ Policies are proactively sent to the PDP and stored locally for evaluation. This
 **Cons:**
 
 * Requires robust synchronization mechanisms to deploy the correct versions of required policies to each PDP instance.
+* Demands governance mechanisms to ensure that policy deployment aligns with ownership boundaries. E.g., microservice teams should only be able to update their own policies, while domain or central teams retain control over shared or organizational policies.
+
+This is where [policy ownership](#policy-ownership) becomes a critical factor, as it directly shapes the enforcement and governance model for policies and who is allowed to deploy which one.
 
 
 #### Embedded Policies
 
-Policies are embedded directly within the PDP (e.g. as code, or as static configuration) and cannot be updated without restarting or redeploying the PDP. This approach is best suited for policies managed centrally at an organizational level and have low change rates. Stability and operational simplicity are typically prioritized over agility in such cases.
+Policies are embedded directly within the PDP (e.g. as code, or as static configuration) and cannot be updated without restarting or redeploying the PDP. This approach is best suited for policies that have delayed change latencies. Stability and operational simplicity are typically prioritized over agility in such cases.
 
 **Pros:**
 
@@ -596,12 +598,13 @@ Policies are embedded directly within the PDP (e.g. as code, or as static config
 
 * Increases deployment overhead, as changes involve rebuilding and/or redeploying the PDP.
 * Limits scalability for needs with frequent policy adjustments.
+* Introduces governance challenges, since the team deploying the PDP effectively decides which policies get bundled and activated, even if those policies are owned by different teams or organizational units.
 
 ### Data Characteristics
 
-Understanding the characteristics of the data involved in policy evaluation — both inputs and outputs — is key to selecting an appropriate authorization pattern. The first subsections focus on the input side and introduce three key dimensions: **[input data locality](#input-data-locality)**, **[input data cardinality](#input-data-cardinality)**, and **[input data freshness](#input-data-freshness)**. The last section covers the characteristics of the output data — the [output data cardinality](#output-data-cardinality)
+Data characteristics define how information used during policies evaluation is sourced and managed. The first subsections focus on the input side and introduce three key dimensions: [input data locality](#input-data-locality), [input data cardinality](#input-data-cardinality), and [input data freshness](#input-data-freshness). The last subsection covers the characteristics of the output data — the [output data cardinality](#output-data-cardinality).
 
-Locality describes the scope within which data is relevant and shared, cardinality influences how much data must be managed, and freshness affects how often that data must be refreshed or fetched in real time. Together, these dimensions critically shape authorization system design.
+Locality describes the scope within which data is relevant and shared, cardinality determines how much data must be managed, and freshness defines how often that data must be refreshed or fetched in real time. Taken together, these dimensions shape the feasibility and efficiency of authorization system design.
 
 #### Input Data Locality
 
@@ -616,7 +619,7 @@ Locality defines the boundaries of data relevance and reuse, from tightly scoped
 Cardinality refers to the number of distinct attributes across all subjects or resources. It determines how easily data can be cached or distributed in an access control systems.
 
 * **High:** Many distinct data items, often tied to individual requests or users (e.g., a real-time risk score or geoip information).
-* **Medium:** Moderate number of distinct data items typically shared across sets of subjects or resources (e.g., project IDs or internal department tags).
+* **Medium:** Moderate number of distinct data items typically shared across sets of subjects or resources (e.g., project IDs).
 * **Low:** Few distinct data items. For example, environment labels (e.g., "production", "staging"), or business unit identifiers (e.g., "HR", "Finance", "R&D").
 
 #### Input Data Freshness
@@ -626,7 +629,6 @@ This measures the maximum acceptable delay between an attribute value changing, 
 * **High:** Changes must be reflected immediately or within seconds to maintain accurate authorization (e.g., real-time risk scores, breach detection flags).
 * **Medium:** Changes should be reflected within minutes to hours, balancing freshness and performance (e.g., feature toggles, subscription tiers).
 * **Low:** Changes can be reflected with delays of hours to days without significant impact.
-
 
 #### Output Data Cardinality
 
@@ -643,13 +645,15 @@ That way, the output cardinality can be grouped into three levels:
 
 * **Low**: Simple decisions with minimal metadata, such as `{ "result": true }` or `{ "decision": "permit" }`.
 * **Medium**: Decisions include multiple structured attributes or small lists (e.g., a few allowed object IDs, scopes, or roles). Example: `{ "allowed_projects": ["A", "B"] }`.
-* **High**: Large or complex result sets, such as thousands of object IDs, deeply nested structures, or partial object representations. These often require pagination or streaming. Example: `{ "resources": ["doc1", "doc2", ..., "doc5000"] }`.
+* **High**: Large or complex result sets, such as thousands of object IDs. These often require pagination or streaming. Example: `{ "resources": ["doc1", "doc2", ..., "doc5000"] }`.
 
 ### Policy Input Data Distribution Strategies
 
-As can be seen from the discussion of the [Authorization Patterns](#authorization-patterns), approaches based on embedded or external PDPs face the following common challenges: how to distribute relevant data and policies to the PDP. This subsection outlines three primary strategies for distributing data to PDPs, each having distinct trade-offs, and their suitability depends on the specific PDP type (e.g., PBAC, ReBAC, or NGAC), the system’s requirements for performance, scalability, and data freshness.
+While the [input data freshness](#input-data-freshness) dimension defines how quickly data changes must be reflected in access control decisions, [input data cardinality](#input-data-cardinality) constrains the amount of information that can be practically stored or cached, limiting the ability to fully achieve that reflection.
 
-Each strategy addresses different operational challenges. While out-of-band push introduces more complexity, it remains essential in scenarios where repeated on-demand fetching or large-scale request-time injection become bottlenecks. No single strategy fits all use cases — most mature systems combine them based on data characteristics, performance needs, and architectural constraints.
+This tension highlights a broader challenge for all approaches relying on embedded or external PDPs: how to make the right data available at evaluation time without overwhelming the system. To address this challenge, different strategies for distributing input data to PDPs have emerged. Each comes with distinct trade-offs, and their suitability depends on the PDP type (e.g., PBAC, ReBAC, NGAC) as well as on system requirements for performance, scalability, and freshness.
+
+Each strategy addresses different operational concerns, and no single approach works universally. Mature systems often combine them, guided by data characteristics, performance targets, and architectural constraints.
 
 #### On-Demand Data Pull
 
@@ -657,19 +661,20 @@ The PDP fetches data from PIPs at the time of policy evaluation, typically via A
 
 **Pros**
 
-* Ensures data freshness by retrieving the latest attributes from PIPs at evaluation time.
-* Simplifies data management, as the PDP does not need to maintain a local copy of data or handle synchronization.
+* Ensures [data freshness](#input-data-freshness) by retrieving the latest attributes values from PIPs at evaluation time.
+* Enables handling of [high-cardinality](#input-data-cardinality) data without preloading large datasets into the PDP.
+* No need for data synchronization mechanisms, since the PDP always queries the source directly.
 * Since the PDP does not need to maintain a local copy of data, the memory or storage demand of the PDP is low.
+* Governance responsibility is at the policy author — the policy defines where the data is retrieved from.
 
 **Cons**
 
-* Increases latency due to network calls to PIPs during evaluation, which can impact performance, especially for high-throughput systems.
-* Complicates retry and failure handling, as the PDP must manage timeouts, errors, or unavailable PIPs, potentially leading to degraded service or fallback decisions.
-* Introduces dependencies on external systems, reducing resilience if PIPs are slow or unavailable.
+* Increases latency due to network calls to PIPs during evaluation, which negatively impacts performance, especially for high-throughput systems.
+* Introduces dependencies on external systems, reducing resilience if PIPs are slow or unavailable, potentially leading to cascading failures, degraded service or fallback decisions.
 * Limits the usable PDP types, as ReBAC and NGAC implementations typically don’t support this strategy.
-* Can degrade system performance when attributes are accessed repeatedly.
+* Degrades system performance when attributes are accessed repeatedly, especially for high-throughput systems.
 
-While caching (if supported by the PDP) can mitigate some of these cons, it introduces the risk of stale data, potentially leading to incorrect authorization decisions.
+While caching (if supported by the PDP) can mitigate some of these drawbacks, it undermines the freshness guarantee, potentially leading to incorrect authorization decisions. Moreover, caching also negates the low-storage advantage listed above — especially for high cardinality data.
 
 #### Out-of-Band Data Push
 
@@ -677,14 +682,16 @@ Data is proactively sent to the PDP in advance, and stored in memory or a local 
 
 **Pros**
 
-* Improves performance by storing data locally (e.g., in cache or a local database), enabling faster policy evaluation without network overhead.
+* Improves performance by storing data locally (e.g., in memory or a local database), enabling faster policy evaluation.
 * Enhances resilience, as the PDP can operate independently of PIP availability, allowing PDP instances to remain lightweight and focused on evaluation, which improves their scalability.
 * ReBAC/NGAC PDP types typically require access to complete relationship graphs or contextual data sets, which are infeasible to retrieve on-demand or pass inline. This strategy enables those models.
+* Reduces load on the PDP by shifting data synchronization to other system components, allowing PDP instances to remain lightweight and focused on evaluation, which improves their scalability.
 
 **Cons**
 
-* Requires robust data distribution pipelines, as mechanisms must be built to push updates to the PDP instances in real-time or near-real-time, especially for data with [high-freshness data](#input-data-freshness) requirements.
-* Increases memory or storage demands on the PDP, which can be problematic for [high-cardinality data](#input-data-cardinality).
+* Requires robust data synchronization mechanisms to push updates to the PDP instances in real-time or near-real-time, especially for data with [high-freshness](#input-data-freshness) requirements.
+* Increases memory or storage demands on the PDP, which is usually problematic for [high-cardinality data](#input-data-cardinality).
+* Introduces governance complexity, as mechanisms, who can write to the event/topic the PDP listens to, or who can invoke the PDP’s API for updates, and which specific data each party is allowed to send, must be established.
 
 #### Request-Time Data Injection
 
@@ -692,19 +699,35 @@ Required data is passed directly in the request from the PEP to the PDP — an a
 
 **Pros**
 
-* Enables handling of [high-cardinality](#input-data-cardinality) or [high-freshness](#input-data-freshness) data without preloading large datasets into the PDP, reducing memory or storage requirements.
-* Ensures data freshness, as the PEP provides the exact attributes needed for the specific request context.
-* Reduces load on the PDP by shifting data fetching and preparation to the PEP, allowing PDP instances to remain lightweight and focused on evaluation, which improves their scalability.
+* Ensures [data freshness](#input-data-freshness) by providing the latest attributes values from PIPs.
+* Enables handling of [high-cardinality](#input-data-cardinality) data without preloading large datasets into the PDP.
+* Reduces load on the PDP by shifting data synchronization to other system components (the PEP), allowing PDP instances to remain lightweight and focused on evaluation, which improves their scalability.
+* Since the PDP does not need to maintain a local copy of data, the memory or storage demand of the PDP is low.
+* Typically, the only option for ReBAC and NGAC systems to provide attributes which are not stored in their databases.
 
 **Cons**
 
 * Increases request size, as additional data is included in the decision request, potentially impacting network performance.
 * Places the burden on the PEP (e.g., microservice or edge component) to collect and validate data from PIPs, increasing complexity in the calling component.
 * Risks inconsistent data if the PEP fails to provide all required attributes or if data collection is misconfigured, potentially leading to incorrect decisions.
-* Limited applicability for ReBAC or NGAC PDPs, which require most authorization data to be pre-present in their databases, allowing only a small number of attributes to be provided by the PEP during the PDP call.
-* Can degrade system performance when attributes are accessed repeatedly.
+* Can degrade system performance when attributes are accessed repeatedly by the PEPs.
+* Introduces governance complexity, as PEP configuration becomes a concern — it determines which attributes are fetched and sent to the PDP, as changes directly impact authorization decisions.
 
 While caching (if supported by the PEP) can mitigate some of these cons, it introduces the risk of stale data, potentially leading to incorrect authorization decisions.
+
+#### Embedded Data
+
+Data is baked directly into the PDP’s configuration, rather than being pulled or pushed dynamically.
+
+**Pros**
+
+* Zero runtime dependencies on external PIPs — the PDP is fully self-contained, which simplifies deployments.
+* No synchronization concerns; the data is always available and consistent.
+
+**Cons**
+
+* Useful for static or rarely changing information only (e.g., "environment": "prod", "region": "EU"), and impractical for medium- or high-freshness data.
+* Introduces governance challenges similar to those described in [embedded policies](#embedded-policies), as the team deploying the PDP effectively decides which data get bundled and used, even if those data elements are owned by different teams or organizational units.
 
 ### Policy Output Data Handling Patterns
 

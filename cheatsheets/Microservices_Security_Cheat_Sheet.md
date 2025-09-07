@@ -560,7 +560,7 @@ This dimension identifies who owns and maintains a particular policy. Ownership 
 
 #### Policy Change Latency
 
-This dimension describes how quickly a policy change must be reflected in the system once introduced. It should not be confused with the *frequency* of policy changes (how often they occur), or with [input data freshness](#input-data-freshness) (how quickly attribute updates must be reflected in policy decisions). While policy change frequency influences governance and authoring processes, the latency dimension — the focus of this chapter — defines how fast policies must be deployed and propagated across services to take effect.
+This dimension describes how quickly a policy change must be reflected in the system once introduced. It should not be confused with the *frequency* of policy changes (how often they occur), or with [input data freshness](#input-data-freshness) (how quickly attribute updates must be reflected in policy decisions). While policy change frequency influences governance and authoring processes, the latency dimension defines how fast policies must be deployed and propagated across services to take effect.
 
 * **Immediate:** Policies must take effect as soon as they are changed (seconds to minutes). Example: A financial system introduces a temporary block on a specific payment method due to detected processing errors. The rule itself (block this method) must be enforced immediately across all services to prevent further transactions.
 * **Fast:** Policies should be applied within hours to days. Example: A sales team requests an update to discount eligibility rules for enterprise customers. Once approved and authored, the new policy should be effective by the next business day.
@@ -644,12 +644,12 @@ While the PDP returns the decision, its structure and size — the **output card
 That way, the output cardinality can be grouped into three levels:
 
 * **Low**: Simple decisions with minimal metadata, such as `{ "result": true }` or `{ "decision": "permit" }`.
-* **Medium**: Decisions include multiple structured attributes or small lists (e.g., a few allowed object IDs, scopes, or roles). Example: `{ "allowed_projects": ["A", "B"] }`.
+* **Medium**: Decisions include multiple structured attributes or small lists. Example: `{ "allowed_projects": ["A", "B"] }`.
 * **High**: Large or complex result sets, such as thousands of object IDs. These often require pagination or streaming. Example: `{ "resources": ["doc1", "doc2", ..., "doc5000"] }`.
 
 ### Policy Input Data Distribution Strategies
 
-While the [input data freshness](#input-data-freshness) dimension defines how quickly data changes must be reflected in access control decisions, [input data cardinality](#input-data-cardinality) constrains the amount of information that can be practically stored or cached, limiting the ability to fully achieve that reflection.
+While the [input data freshness](#input-data-freshness) dimension defines how quickly data changes must be reflected in access control decisions, [input data cardinality](#input-data-cardinality) can, depending on the PDP type, limit how much information can be stored or cached in practice, and with that also the ability to fully achieve that reflection. This challenge is especially relevant in PBAC systems.
 
 This tension highlights a broader challenge for all approaches relying on embedded or external PDPs: how to make the right data available at evaluation time without overwhelming the system. To address this challenge, different strategies for distributing input data to PDPs have emerged. Each comes with distinct trade-offs, and their suitability depends on the PDP type (e.g., PBAC, ReBAC, NGAC) as well as on system requirements for performance, scalability, and freshness.
 
@@ -834,15 +834,15 @@ This subsection maps the [decision dimensions](#decision-dimensions-for-authoriz
 
 The diagram above illustrates the recommended patterns based on the given dimensions.
 
-* If the [input data locality](#input-data-locality) required for the decision is service-local, [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) is ideal — regardless of other dimensions — since the data’s isolated scope avoids all the drawbacks discussed earlier.
+* If the [input data locality](#input-data-locality) required for the decision is service-local, [Decentralized Service-Level Authorization](#decentralized-service-level-authorization) is ideal — regardless of other dimensions — since the data’s isolated scope avoids all the drawbacks discussed earlier.
 
-* If the [input data locality](#input-data-locality) extends beyond Service-Local — i.e., the same data is shared across multiple services — and the [output data cardinality](#output-data-cardinality) is high while using [Authorization Filters](#policy-output-data-handling-patterns) is not feasible, then Centralized Service-Level Access Control, either with an [embedded PDP](#centralized-service-level-access-control-with-embedded-pdp) or an [external PDP](#centralized-service-level-access-control-with-external-pdp), is better suited to the context.
+* If the [input data locality](#input-data-locality) extends beyond Service-Local — i.e., the same data is shared across multiple services — and the [output data cardinality](#output-data-cardinality) is high while using [Authorization Filters](#policy-output-data-handling-patterns) is not feasible, then [Centralized Service-Level Access Control](#centralized-service-level-authorization) is better suited to the context.
 
-* In all other cases, [Modern Edge-Level Access Control](#edge-level-authorization-modern) tends to offer the best trade-offs.
+* In all other cases, [Modern Edge-Level Authorization](#edge-level-authorization-modern) tends to offer the best trade-offs.
 
-* [Classic Edge-Level Access Control](#edge-level-authorization-classic) may still be suitable when input data is organization-wide, output cardinality is low, and all relevant data is either [pulled by the PDP at request time](#on-demand-data-pull) at request time or [pushed to the PDP out-of-band](#out-of-band-data-push) in advance.
+* [Classic Edge-Level Authorization](#edge-level-authorization-classic) may still be suitable when input data is organization-wide, output cardinality is low, and all relevant data is either [pulled by the PDP at request time](#on-demand-data-pull) at request time or [pushed to the PDP out-of-band](#out-of-band-data-push) in advance.
 
-**Note:** Pattern selection is not an isolated decision. The described patterns form a broader **pattern language**, where one pattern often implies or necessitates the use of another. For instance, selecting [Modern Edge-Level Access Control](#edge-level-authorization-modern) introduces the concept of an "authorization contract", which must be verified within each service. These contracts represent service-local data, and verifying them naturally leads to adopting [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) inside the respective services.
+**Note:** Pattern selection is not an isolated decision. The described patterns form a broader **pattern language**, where one pattern often implies or necessitates the use of another. For instance, selecting [Modern Edge-Level Authorization](#edge-level-authorization-modern) introduces the concept of an "authorization contract", which must be verified within each service. These contracts represent service-local data, and verifying them naturally leads to adopting [Decentralized Service-Level Authorization](#decentralized-service-level-authorization) inside the respective services.
 
 **Example: The Blog Platform**
 
@@ -855,10 +855,10 @@ The system defines two access requirements:
 
 These requirements map naturally to different authorization patterns:
 
-* For listing articles, the access logic relies solely on local data stored within the article service. Since the input data is entirely service-local, the [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) pattern is ideal — no orchestration or coordination with other services is required.
-* Reading a full article, however, requires accessing data managed by multiple services: the subscription service (to verify Alice’s plan) and a usage-tracking service (to check her daily quota). Because the input data is not local and the output cardinality is low — the system makes a decision about a single article — [Modern Edge-Level Access Control](#edge-level-authorization-modern) is a better fit. The "authorization contract" introduced here might, for example, look like:
+* For listing articles, the access logic relies solely on local data stored within the article service. Since the input data is entirely service-local, the [Decentralized Service-Level Authorization](#decentralized-service-level-authorization) pattern is ideal — no orchestration or coordination with other services is required.
+* Reading a full article, however, requires accessing data managed by multiple services: the subscription service (to verify Alice’s plan) and a usage-tracking service (to check her daily quota). Because the input data is not local and the output cardinality is low — the system makes a decision about a single article — [Modern Edge-Level Authorization](#edge-level-authorization-modern) is a better fit. The payload of the "authorization contract" introduced here might, for example, look like:
 `{ "requested_article": "<uuid>", "allowed_representation": "<full | excerpt>" }`,
-which then leads to verifying this contract within the article service using [Decentralized Service-Level Access Control](#decentralized-service-level-access-control).
+which then leads to verifying this contract within the article service using [Decentralized Service-Level Authorization](#decentralized-service-level-authorization).
 
 **Example: A Document Management System**
 
@@ -869,16 +869,14 @@ Let’s now shift the service landscape slightly to explore the applicability of
 
 These map to the following patterns:
 
-* Listing documents requires access to the project members service. Given the typically high output cardinality, Centralized Service-Level Access Control — with either an embedded or external PDP — is the best fit.
-* While reading a document could use the same pattern, [Modern Edge-Level Access Control](#edge-level-authorization-modern) is a better fit. It simplifies the implementation of the document-rendering service and ensures that all exposed endpoints — not just the document delivery one — are consistently subject to access control.
-
-
+* Listing documents requires access to the project members service. Given the typically high output cardinality, [Centralized Service-Level Authorization](#centralized-service-level-authorization) is the best fit.
+* While reading a document could use the same pattern, [Modern Edge-Level Authorization](#edge-level-authorization-modern) is a better fit. It simplifies the implementation of the document-rendering service and ensures that all exposed endpoints — not just the document delivery one — are consistently subject to access control.
 
 Last but not least, the [performance](#performance) requirements and [input data cardinality](#input-data-cardinality) strongly influence the PDP choice — PBAC, ReBAC, or NGAC — and integration approach — embedded vs. external. However, this decision may also be shaped by the available tooling for [policy](#policy-distribution-strategies) and [policy input data](#policy-input-data-distribution-strategies) distribution — which brings us to the next section.
 
 ### Data and Policy Distribution in Practice
 
-Building on the concepts introduced in [Data Distribution Strategies](#data-distribution-strategies) and [Policy Distribution Strategies](#policy-distribution-strategies), this section demonstrates how the [out-of-band data push](#out-of-band-data-push) and [out-of-band delivered policies](#out-of-band-delivered-policies) approaches translate into concrete architectures for real-world PDP deployments. These architectures — whether based on embedded PDPs or standalone PDP services — incorporate specific control-plane components, described below, to manage initialization, configuration, and runtime updates, ensuring that PDPs remain synchronized and deliver accurate authorization decisions in dynamic environments.
+Building on the concepts introduced in [Policy Input Data Distribution Strategies](#data-distribution-strategies) and [Policy Distribution Strategies](#policy-distribution-strategies), this section demonstrates how the [out-of-band data push](#out-of-band-data-push) and [out-of-band delivered policies](#out-of-band-delivered-policies) approaches translate into concrete architectures for real-world PDP deployments. These architectures — whether based on embedded PDPs or standalone PDP services — incorporate specific control-plane components, described below, to manage initialization, configuration, and runtime updates, ensuring that PDPs remain synchronized and deliver accurate authorization decisions in dynamic environments.
 
 * **Configuration Repository:** Stores the desired configuration for each PDP instance, including detailed references to required policies — such as their repository locations and version information — as well as PIP integration settings, including endpoints, supported protocols, credentials, and other communication-specific parameters.
 * **Distributor:** A control-plane component responsible for distributing configuration that enables Aggregators to obtain and apply data and policy artifacts. It retrieves configuration from the Configuration Repository and monitors it for changes. Whenever an Aggregator connects or updated configuration becomes available, the Distributor pushes the applicable configuration to that Aggregator. Depending on the implementation, it may also act as a relay for data updates from PIPs, forwarding only the relevant updates to each Aggregator based on their configured subscriptions.
@@ -886,7 +884,7 @@ Building on the concepts introduced in [Data Distribution Strategies](#data-dist
 
 The following setup illustrates this approach, showing how a PDP can be provisioned with policies and data while supporting runtime updates.
 
-![Embedded PDP Data & Policy Distribution](../assets/Embedded_PDP_Data_Policy_Distribution.svg)
+![Embedded PDP Data & Policy Distribution](../assets/Data_and_Policy_Distribution.svg)
 
 1. The Distributor starts, retrieves configurations from the Configuration Repository, and waits for Aggregator connections.
 2. An Aggregator starts, connects to the Distributor, and receives its configuration.
@@ -899,19 +897,46 @@ The following setup illustrates this approach, showing how a PDP can be provisio
 
 Similar setups have been successfully adopted in large-scale production environments. For example, Netflix presented a comparable design at KubeCon 2017 ([video](https://www.youtube.com/watch?v=R6tUNpRpdnY), [slides](https://conferences.oreilly.com/velocity/vl-ca-2018/public/schedule/detail/66606.html)). Their terminology differs slightly: the component shown as *Aggregator* in the diagram above is called the "AuthZ Agent", and instead of letting each agent independently collect required data, Netflix introduced a central "Super PIP" (which they call the "Aggregator") positioned between the event distribution system and the agents. This component preprocesses and routes relevant data updates, while the AuthZ Agents remain responsible for configuring and updating the embedded PDP instances.
 
-A known open-source project that implements a similar architecture is [OPAL - Open Policy Administration Layer](https://github.com/permitio/opal). Compared to the diagram above, OPAL delegates responsibility for relaying data updates to the *Distributor*, which pushes relevant changes to each *Aggregator* instance.
+An open-source project that implements a similar architecture is [OPAL - Open Policy Administration Layer](https://github.com/permitio/opal), which allows managing [OPA](https://www.openpolicyagent.org/) and [Cedar-Agent](https://github.com/permitio/cedar-agent) instances. Compared to the diagram above, OPAL delegates responsibility for relaying data updates to the *Distributor*, which pushes relevant changes to each *Aggregator* instance.
 
-Although both examples use [OPA](https://www.openpolicyagent.org/) as the PDP, the architectural principles described here are not specific to OPA. The control-plane components — configuration repository, distributor, aggregator — and the mechanisms for policy and data provisioning apply equally to other PDP types — PBAC, ReBAC, NGAC — and deployment models.
+**Note:** Although both examples above use PBAC PDP engines, the architectural principles described here are not specific to PBAC engines. The control-plane components — configuration repository, distributor, and aggregator — as well as the mechanisms for policy and data provisioning, apply equally to other PDP types, such as ReBAC and NGAC. Unlike PBAC PDPs, which typically store policies and data only in memory, ReBAC and NGAC PDPs maintain persistent storage. In such deployments, the distributor is typically implemented as a CI/CD pipeline to handle automated provisioning and policy updates and does not manage runtime data updates.
 
-However, the [out-of-band data push](#out-of-band-data-push) approach introduces a key challenge: **ensuring consistency in the face of distributed state updates**.
+This [out-of-band data push](#out-of-band-data-push) approach introduces an important challenge: **ensuring consistency in the face of distributed state updates**.
 
-To illustrate this, consider a microservice (e.g., Service A) that updates its own database after a successful request and emits a corresponding domain event intended to notify PDP-related infrastructure (e.g., an Aggregator via an event bus). If that event is lost in transit, or the Aggregator fails to process it, the PDP’s internal state may become outdated. As a result, future authorization decisions — possibly in other services — may be based on stale or incomplete data, leading to incorrect access grants or denials.
+To illustrate this, consider a microservice (e.g., Service A) that updates its own database after a successful request and emits a corresponding [domain event](https://microservices.io/patterns/data/domain-event.html) intended to notify PDP-related infrastructure (e.g., an Aggregator via an event bus). If the event is lost, delayed, or not processed correctly, the PDP’s internal state may become outdated. As a result, future authorization decisions — possibly in other services — may be based on stale or incomplete data, leading to incorrect access grants or denials.
 
-This situation mirrors a classic **distributed transaction problem**: the state change in the microservice and the state change in the PDP must eventually converge, but there's no atomic commit across both systems. Since traditional distributed transactions are often impractical or undesirable in such architectures, patterns like [Saga](https://microservices.io/patterns/data/saga.html) can help mitigate these risks.
+This situation reflects a classic **distributed transaction problem**: changes in the microservice and the state change in the PDP must eventually converge, but there's no atomic commit across both systems. Since traditional distributed transactions are often impractical or undesirable in such architectures, solutions may range from simple reliable event delivery mechanisms, like [Transactional Outbox](https://microservices.io/patterns/data/transactional-outbox.html) to more sophisticated patterns like [Saga](https://microservices.io/patterns/data/saga.html) if acknowledgement of event delivery is required.
 
-### Interplay Between Authorization, Authentication Patterns, and Zero Trust
+### Policy Input Data Governance
 
-Authentication (who you are) and authorization (what you're allowed to do) are closely related but serve different purposes in secure service architectures. The choice of one influences the requirements of the other — and both must be aligned to implement Zero Trust, a model that treats every access request as untrusted by default.
+As in the previous section, this section builds on the concepts introduced in [Policy Input Data Distribution Strategies](#policy-input-data-distribution-strategies) and focuses on challenges common to all strategies that were not addressed earlier:
+
+* **Structural and semantic consistency:** ensuring that supplied data matches the assumptions encoded in policies. For example, policies reference specific attributes — such as user identifiers, resource ownership, or status fields — and rely on those attributes being available and stable. A renaming of a field, change of type, or omission of an attribute may prevent policies from being evaluated correctly, creating the risk of incorrect authorization decisions and undermining system reliability.
+* **Consumer visibility and coordination:** knowing which policies depend on which attributes so that producers can coordinate safely with policy owners before making schema or semantic changes.
+
+These challenges are inherent to distributed architectures. Whether in Big Data pipelines spanning multiple data sources and transformations, or if multiple microservices are communicating to each other to execute some business function, in both domains, data or messages can break consumers if schemas or semantics change unexpectedly, and accountability for who relies on which data is unclear.
+
+To address this, explicit agreements — often called **data contracts** in Big Data domain or **consumer contracts** in microservice architectures — codify the shared expectations between producers and consumers and define the "API of data" being exchanged. These types of contracts typically define schema, semantics, and quality guarantees, and also provide mechanisms for coordinated change management.
+
+Adapting the same principles to authorization architectures bring similar benefits: 
+
+* **Communicating the Data API**: Contracts act as a shared reference between PIPs (data producers) and policy authors, clarifying which attributes are required and how they are structured. 
+* **Protecting Consumer Expectations**: Contracts can include domain constraints, value ranges, or other guarantees, helping policy assumptions remain valid as data evolves. 
+
+That would also ensure that data supplied to PDPs — whether [pulled on-demand](#on-demand-data-pull), [pushed out-of-band](#out-of-band-data-push), or [passed inline](#request-time-data-injection) — is complete, correctly typed, and semantically valid before reaching the PDP.
+
+Standards such as the emerging [Open Data Contracts Standard](https://bitol-io.github.io/open-data-contract-standard/v2.2.2/home/) provide structured ways of defining contracts, while related tooling like the [Data Contract CLI](https://cli.datacontract.com/) supports validation and can also be used for enforcement. Alternatively, open-source governance platforms such as [Apache Atlas](https://atlas.apache.org/) can be adapted to manage metadata, lineage, and schema evolution in support of policy-relevant data contracts. Tools like [Pact](https://pact.io/) can also serve as a practical step toward implementing such contracts by codifying consumer expectations and validating producer behavior, ensuring that exchanged data meets structural and semantic requirements.
+
+### Interplay Between Authorization, Authentication, Identity Propagation Patterns, and Zero Trust
+
+Authentication (who you are), authorization (what you're allowed to do), and identity propagation (how the results of authentication are securely carried forward) each address distinct concerns, yet they are deeply interconnected. The usage of one affects the requirements of the others, and vice versa. And only by aligning them consistently can identity, access, and trust be continuously verified and enforced across the system. As a natural consequence, the system as a whole comes to embody the principles of Zero Trust:
+
+* **Never trust by default**: Treat every request as untrusted, even inside the same network perimeter.
+* **Always verify everything**: Continuously and adaptively authenticate and authorize all requests, taking real-time signals, like  user behavior or device state into account.
+* **Least privilege**: Grant subjects, be it a user, device, or e.g. a service, only the permissions they need, minimizing attack surface.
+* **Micro-segmentation**: Divide networks and systems into isolated micro zones to limit lateral movement.
+* **Assume breach**: Operate as if attackers are already inside - monitor, log, and audit continuously.
+* **Protect data**: Strongly encrypt sensitive information in transit and at rest to ensure confidentiality and integrity.
 
 
 
@@ -920,15 +945,6 @@ Authentication (who you are) and authorization (what you're allowed to do) are c
 * [Service-Level Code-Mediated Authentication](#service-level-code-mediated-authentication) extends the authorization options beyond those possible for Service-Level Embedded Authentication. It enables the usage of Centralized Service-Level Access Control with [embedded](#centralized-service-level-access-control-with-embedded-pdp) and [external PDP](#centralized-service-level-access-control-with-external-pdp). Possible secure [identity propagation patterns](#identity-propagation-patterns) are limited to [External Identity Propagation](#external-identity-propagation) and [Token Exchange-Based Identity Propagation](#token-exchange-based-identity-propagation). The former is not always feasible, especially when asynchronous communication patterns are used for inter-service communication. And the latter increases the complexity and maintenance of the particular services. Support for multi-principal subjects as described in [On Subject, Principals and Identities](#on-subjects-principals-and-identities) section is typically hard to achieve as most of the existing frameworks used to implement Service-Level Embedded Authentication don't support this and require custom code. Can be combined with [Edge-Level Authentication](#edge-level-authentication) and [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) to support workload authentication.
 
 * [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) is similar to [Service-Level Code-Mediated Authentication](#service-level-code-mediated-authentication) regarding [identity propagation](#identity-propagation-patterns) and authorization options, extends the latter however to the support of [Edge]
-
-#### Zero Trust Foundations
-
-Zero Trust fundamentally changes how authentication and authorization are handled. Instead of assuming trust based on network location or actor type, it enforces strict verification and minimal access at all times:
-
-* **Never Trust, Always Verify**: Every request is authenticated and authorized, regardless of origin.
-* **Least Privilege**: Access is narrowly scoped and time-limited.
-* **Continuous Validation**: Trust is reassessed continually using real-time signals like user behavior or device state.
-
 
 #### Zero Trust and Authentication Patterns
 

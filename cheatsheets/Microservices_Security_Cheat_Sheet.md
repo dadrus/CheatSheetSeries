@@ -856,8 +856,8 @@ The system defines two access requirements:
 These requirements map naturally to different authorization patterns:
 
 * For listing articles, the access logic relies solely on local data stored within the article service. Since the input data is entirely service-local, the [Decentralized Service-Level Authorization](#decentralized-service-level-authorization) pattern is ideal — no orchestration or coordination with other services is required.
-* Reading a full article, however, requires accessing data managed by multiple services: the subscription service (to verify Alice’s plan) and a usage-tracking service (to check her daily quota). Because the input data is not local and the output cardinality is low — the system makes a decision about a single article — [Modern Edge-Level Authorization](#edge-level-authorization-modern) is a better fit. The payload of the "authorization contract" introduced here might, for example, look like:
-`{ "requested_article": "<uuid>", "allowed_representation": "<full | excerpt>" }`,
+* Reading a full article, however, requires accessing data managed by multiple services: the subscription service (to verify Alice’s plan) and a usage-tracking service (to check her daily quota). Because the input data is not local and the output cardinality is low — the system makes a decision about a single article — [Modern Edge-Level Authorization](#edge-level-authorization-modern) is a better fit. The payload of the "authorization contract" introduced here might, for example, look similar to:
+`{ "sub": "0f4a6554-9069-483d-bc8b-86c6943f22f2", "iat": 1757378963, "requested_article": "<uuid>", "allowed_representation": "<full | excerpt>", ...  }`,
 which then leads to verifying this contract within the article service using [Decentralized Service-Level Authorization](#decentralized-service-level-authorization).
 
 **Example: A Document Management System**
@@ -916,7 +916,7 @@ As in the previous section, this section builds on the concepts introduced in [P
 
 These challenges are inherent to distributed architectures. Whether in Big Data pipelines spanning multiple data sources and transformations, or if multiple microservices are communicating to each other to execute some business function, in both domains, data or messages can break consumers if schemas or semantics change unexpectedly, and accountability for who relies on which data is unclear.
 
-To address this, explicit agreements — often called **data contracts** in Big Data domain or **consumer contracts** in microservice architectures — codify the shared expectations between producers and consumers and define the "API of data" being exchanged. These types of contracts typically define schema, semantics, and quality guarantees, and also provide mechanisms for coordinated change management.
+To address this, explicit agreements — often called **data contracts** in Big Data domain or **consumer driven contracts** in microservice architectures — codify the shared expectations between producers and consumers and define the "API of data" being exchanged. These types of contracts typically define schema, semantics, and quality guarantees, and also provide mechanisms for coordinated change management.
 
 Adapting the same principles to authorization architectures bring similar benefits: 
 
@@ -938,75 +938,207 @@ Authentication (who you are), authorization (what you're allowed to do), and ide
 * **Assume breach**: Operate as if attackers are already inside - monitor, log, and audit continuously.
 * **Protect data**: Strongly encrypt sensitive information in transit and at rest to ensure confidentiality and integrity.
 
+To achieve this alignment, it helps to determine the [authorization approach](#authorization-patterns) first, then select [identity-propagation](#identity-propagation-patterns) mechanisms that can reliably convey attributes about the subject, and only then select the proper [authentication patterns](#authentication-patterns). This order prevents earlier decisions from imposing constraints that would undermine a secure, scalable, and maintainable system, while leaving room for deliberate deviations — for example, shifting enforcement closer to a service when downstream identity propagation makes it necessary.
+
+Building on the outcome from the [Authorization Patterns Recommendations](#authorization-patterns-recommendations), the application of this principle leads to the following recommendations:
+
+* **[Decentralized Service-Level Authorization](#decentralized-service-level-authorization)**
+    * When a service needs to communicate to downstream services, a stable, canonical representation of the external subject is required so that each hop can evaluate requests consistently. Applying the [Protocol-Agnostic Identity Propagation](#protocol-agnostic-identity-propagation) pattern at the edge supports the required issuance of a signed subject structure — a special purpose  "Authorization Contract" — which would travel with the request across the call chain.
+    * However, this pattern alone does not address all limitations of Decentralized Service-Level Authorization: every downstream endpoint remains accessible to any authenticated subject. Additionally, endpoints intended to be public would now require authentication. Combining this pattern with [Modern Edge-Level Authorization](#edge-level-authorization-modern) configured with a default-deny rule ensures that no endpoint is reachable unless explicitly permitted. Services that need to expose endpoints can now define allow rules: purely public endpoints can bypass authentication and the deny-all rule, while endpoints requiring authentication can disable only the deny-all rule.
+    * Endpoints that do not consume the canonical contract (e.g., health checks, actuator APIs) require additional protection to prevent access from malicious peers within the same network. This protection can be provided through either the [Kernel-Level Authentication](#kernel-level-authentication) pattern or the [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) pattern, both of which establish workload identity for every inbound connection.
+    * For services without downstream dependencies, identity propagation is unnecessary, but maintaining a default-deny posture is still recommended. This can be enforced through the same edge-level patterns or, alternatively, by using [Side-Car-Proxy-Based Authorization](#edge-level-authorization-modern) — a localized form of Modern Edge-Level Authorization — together with [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) to validate the caller and determine its subject for internal processing.
+
+* **[Centralized Service-Level Authorization](#centralized-service-level-authorization):** The same approach as for [Decentralized Service-Level Authorization](#decentralized-service-level-authorization) applies.
+
+* **[Modern Edge-Level Authorization](#edge-level-authorization-modern):**
+    * If a service needs to communicate with downstream services, a stable subject representation across hops is required. In this case, it is necessary to deviate from the result of the [Authorization Patterns Recommendations](#authorization-patterns-recommendations) and fall back to [Centralized Service-Level Authorization](#centralized-service-level-authorization). This deviation is valid because adding custom claims to, or changing the canonical subject entirely to build the "Authorization Contract" (the default behavior of Modern Edge-Level Authorization) would break downstream services that rely on it for their own authorization. Using a centralized service-level approach preserves consistency across the call chain while maintaining enforcement, though modern edge-level authorization mechanisms are still used, but limited to the bare minimum.
+    * If no downstream calls are needed, the service can make use of Modern Edge-Level Authorization to its full extent, and [Edge-Level Authentication](#edge-level-authentication) is a natural fit to establish the external subject.
+    * In either case, pairing with [Kernel-Level Authentication](#kernel-level-authentication) or [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) ensures that workload identity is established and inter-service communication — here between the edge and the service — is protected.
+
+* **[Classic Edge-Level Authorization](#edge-level-authorization-classic):**
+    * Since no service-local data is used, this pattern naturally combines with [Edge-Level Authentication](#edge-level-authentication) and, as with other patterns, should be complemented with [Kernel-Level Authentication](#kernel-level-authentication) or [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication). 
+    * If there is a need to communicate with downstream services, [Protocol Agnostic Identity Propagation](#protocol-agnostic-identity-propagation) can be adopted as well. 
+    * However, as discussed in the [Classic Edge-Level Authorization](#edge-level-authorization-classic) section, this pattern has inherent socio-technical limitations. Therefore, [Modern Edge-Level Authorization](#edge-level-authorization-modern) is recommended instead.
+
+**Note:** While service-level [code-mediated](#service-level-code-mediated-authentication) or [proxy-mediated](#service-level-proxy-mediated-authentication) authentication are commonly used patterns, these approaches practically not only restrict secure identity propagation to [token exchange-based](#token-exchange-based-identity-propagation) only, which is actually designed to narrow the authorization scope of a requester in [third-party](#first-party-vs-third-party) contexts and is not intended for [first-party](#first-party-vs-third-party) use. They also tightly couple microservice code to OAuth2/OIDC, making multi-principal subjects difficult to implement in practice, and entirely exclude multi-protocol scenarios.
 
 
-* [Service-Level Embedded Authentication](#service-level-embedded-authentication) limits the usage of authorization patterns to [Decentralized Service-Level Access Control](#decentralized-service-level-access-control) only and makes it impossible to implement [identity propagation](#identity-propagation-patterns) in a secure way — what a particular principal is, is only defined in the context of a particular service. This is also the reason, why Centralized Service-Level Access Control with [embedded](#centralized-service-level-access-control-with-embedded-pdp) or [external PDP](#centralized-service-level-access-control-with-external-pdp) is impractical. Both expect it to be a shared definition within a given system context. Can be combined with [Edge-Level Authentication](#edge-level-authentication) and [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) to support workload authentication. 
+### Authentication, Identity Propagation, and Authorization Patterns in Practice
 
-* [Service-Level Code-Mediated Authentication](#service-level-code-mediated-authentication) extends the authorization options beyond those possible for Service-Level Embedded Authentication. It enables the usage of Centralized Service-Level Access Control with [embedded](#centralized-service-level-access-control-with-embedded-pdp) and [external PDP](#centralized-service-level-access-control-with-external-pdp). Possible secure [identity propagation patterns](#identity-propagation-patterns) are limited to [External Identity Propagation](#external-identity-propagation) and [Token Exchange-Based Identity Propagation](#token-exchange-based-identity-propagation). The former is not always feasible, especially when asynchronous communication patterns are used for inter-service communication. And the latter increases the complexity and maintenance of the particular services. Support for multi-principal subjects as described in [On Subject, Principals and Identities](#on-subjects-principals-and-identities) section is typically hard to achieve as most of the existing frameworks used to implement Service-Level Embedded Authentication don't support this and require custom code. Can be combined with [Edge-Level Authentication](#edge-level-authentication) and [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) to support workload authentication.
+Building on the [story of Alice and the blog platform](#a-story-to-ground-the-concepts) and the example in [Authorization Patterns Recommendations](#authorization-patterns-recommendations), this section illustrates how the recommended patterns can be implemented in practice.
 
-* [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication) is similar to [Service-Level Code-Mediated Authentication](#service-level-code-mediated-authentication) regarding [identity propagation](#identity-propagation-patterns) and authorization options, extends the latter however to the support of [Edge]
+#### Extended Access Requirements
 
-#### Zero Trust and Authentication Patterns
+* **Listing articles:** Every user may view a list of articles, including the title, publication date, author, and a short excerpt.
+* **Reading articles:** Access to the full content depends on the user’s subscription tier and the number of full articles already read that day. If the quota is exceeded or the user is anonymous, only an excerpt is shown. An exception applies for authors: an authenticated user may always read articles they wrote. Existing tiers are:
+  – Free tier: up to 2 articles per day
+  – Basic tier: up to 20 articles per day
+  – Professional tier: unlimited
+* **Writing articles:** Only professional-tier users may write. Before publication, an article must pass a harassment-content analysis. If rejected, the user is notified and warned. Warnings appear in the user’s private profile.
 
-Zero Trust requires robust, continuous authentication mechanisms that verify identity at every step. The following authentication patterns are particularly relevant:
+#### Resulting Services
 
-* [Service-Level Proxy-Mediated Authentication](#service-level-proxy-mediated-authentication): By offloading authentication to a sidecar proxy, this pattern can enforce consistent authentication policies across services. It also supports workload identity systems like SPIFFE/SPIRE, which provide cryptographically verifiable identities for services, also supporting mutual TLS authentication. This ensures that only authenticated services can communicate, a key requirement in Zero Trust.
+To support these requirements, the following services may be implemented:
 
-* [Edge-Level Authentication](#edge-level-authentication): Centralizing authentication at the system boundary (e.g., via an API gateway) aligns with Zero Trust by providing a single point of control for verifying identity before requests enter the system. When combined with [Protocol-Agnostic Identity Propagation](#protocol-agnostic-identity-propagation), internal services can independently verify identity without blindly trusting upstream components, fulfilling the "always verify" principle.
+* **Articles service** – manages article storage and retrieval, as well as the number of the read articles, with latter being cleared each night.
+* **Subscription service** – tracks user subscription tiers.
+* **Analysis service** – performs harassment analysis and stores warnings
+* **Identity Provider (IdP)** – handles registration, login, password reset, etc.
+* **Payment provider** – processes subscription fees.
+* **Wiring application** – assembles the UI and orchestrates calls to the other services, using appropriate UI integration patterns.
 
-* [Kernel-Level Authentication](#kernel-level-authentication): This pattern enforces authentication at the transport layer using cryptographic identities (e.g., via IPSec or WireGuard). It provides strong workload identity verification, ensuring that only authenticated services can establish connections. This is a foundational element of Zero Trust networking, as it secures service-to-service communication without relying on network topology.
+#### Mapping Requirements to Patterns
 
-#### Identity Propagation in Zero Trust
+* Listing articles → [Decentralized Service-Level Authorization](#decentralized-service-level-authorization)
+* Reading a full article → [Modern Edge-Level Authorization](#edge-level-authorization-modern) to create the "authorization contract", enforced within the article service using [Decentralized Service-Level Authorization](#decentralized-service-level-authorization)
+* Writing an article → secure identity propagation from the edge through the article service to the analysis service via [Protocol-Agnostic Identity Propagation](#protocol-agnostic-identity-propagation) + [Centralized Service-Level Authorization](#centralized-service-level-authorization)
+* Reading warnings → [Decentralized Service-Level Authorization](#decentralized-service-level-authorization)
+* Performing harassment analysis → same pattern as above
+* Wiring application UI → checks only whether the user is authenticated; [Decentralized Service-Level Authorization](#decentralized-service-level-authorization) suffices
+* In all cases → [Modern Edge-Level Authorization](#edge-level-authorization-modern) protects endpoints so they cannot accidentally become public.
+* To secure service-to-service traffic (article ↔ analysis, article ↔ PDP, etc.) [Kernel-Level Authentication](#kernel-level-authentication) is used to ensure workload identity.
 
-In Zero Trust architectures, identity propagation must be tamper-proof and independently verifiable by each service. The following identity propagation patterns are particularly suited for Zero Trust:
+#### Possible OSS Stack
 
-* [Protocol-Agnostic Identity Propagation](#protocol-agnostic-identity-propagation): By transforming external authentication data into a normalized, signed token at the edge, this pattern ensures that internal services can verify identity without relying on external systems. The cryptographic signature provides strong integrity guarantees, preventing tampering or spoofing.
+Implementing [Kernel-Level Authentication](#kernel-level-authentication) typically requires Kubernetes. Projects such as [Cilium](https://cilium.io/), [Istio](https://istio.io/) (ambient mode), [Linkerd](https://linkerd.io/), or other service-mesh implementations provide strong workload identity and mutual authentication for inter-service traffic.
 
-* [Token Exchange-Based Identity Propagation](#token-exchange-based-identity-propagation): Using mechanisms like OAuth2 Token Exchange, services can obtain scoped, short-lived tokens for downstream calls. This limits the exposure of long-lived credentials and ensures that each service interaction is authorized based on the current context.
+For the IdP, social login via Google or Apple can cover registration and sign-in flows.
 
-#### Authorization Patterns in Zero Trust Contexts
+[Modern Edge-Level Authorization](#edge-level-authorization-modern) and [Protocol-Agnostic Identity Propagation](#protocol-agnostic-identity-propagation) can be implemented with the help of open-source projects such as [Heimdall](https://github.com/dadrus/heimdall), [Oathkeeper](https://github.com/ory/oathkeeper), [Pomerium](https://github.com/pomerium/pomerium), or similar. In the walkthrough below I’ll use heimdall simply because I maintain it, and it’s the easiest way for me to illustrate the patterns. If Istio serves as the service mesh, Istio Gateway can act as the ingress, with heimdall integrated via Istio’s `DestinationRule`.
 
-The previously discussed [Authorization Patterns Recommendations](#authorization-patterns-recommendations) inherently align with Zero Trust principles — including **least privilege**, **continuous identity verification**, and **context-aware access control**. Rather than introducing Zero Trust as a separate concern, these architectural patterns enforce its core tenets by design.
+Because social login with Google requires an OIDC client functionality and heimdall (like many similar projects) does not implement it, an additional component is needed. [oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy) is a well-known option for that purpose.
 
-Here’s how the recommended patterns contribute to a Zero Trust architecture:
+As the PDP, OPA, with OPAL acting as the control-plane component to distribute policies and data to OPA instances, could be used. However, any other PDP and matching control-plane solution could be used in the same way.
 
-* **Decentralized Service-Level Access Control** enables decisions close to the data using strictly local and verifiable context, minimizing reliance on implicit trust.
-* **Centralized Service-Level Access Control** (with embedded or external PDP) allows consistent enforcement across services using shared identity and context, while supporting dynamic and centrally managed policies.
-* **Modern Edge-Level Access Control** applies authorization at the perimeter and issues verifiable contracts, reducing internal trust assumptions and ensuring consistent downstream enforcement.
+To ensure that authorization decisions always reflect the most recent state, an event bus is required. Services publish relevant events, which are then consumed by OPAL and distributed to the PDP instances.
 
-These patterns, when used in combination, provide a flexible foundation for implementing Zero Trust in distributed systems.
+In this example:
 
-#### Best Practices
+* The **articles service** emits an event each time a user reads an article. The event contains the heimdall-issued JWT together with the user’s updated “read articles” counter.
+* The **subscription service** emits an event whenever a user changes their subscription tier.
 
-To successfully implement Zero Trust across distributed systems:
-
-* Design for Layered Identity Verification: Use consistent, protocol-agnostic identity propagation and cryptographic verification to enable independent trust decisions across services.
-* Favor Central Authentication: When feasible, centralize authentication to improve consistency, observability, and incident response.
-* Choose Authorization Patterns Based on System Needs: Weigh security, latency, scalability, and operational complexity when deciding between edge-level, service-level, or centralized models.
-* Implement Auditing and Monitoring: Logging, traceability, and anomaly detection are essential to enforce and verify Zero Trust assumptions over time.
-
-
-### Mapping Product Features
-
-How specific OSS projects map to these architectural setups (e.g., how OPAL + OPA can realize the embedded PDP model with event-based updates, how heimdall can be used to implement reliable edge-level authn&z approaches, ...)
-
-### Common Pitfalls and Best Practices
-
-TODO: guidance on avoiding common mistakes (e.g., "accept by default" behaviors, misconfigured proxies) and implementing best practices for secure authentication and authorization
+This event-driven approach lets OPA react almost instantly to changes when evaluating policies. For reliable delivery, the event bus could be implemented with [Apache Kafka](https://kafka.apache.org/), or lighter alternatives such as [NATS](https://nats.io), [RabbitMQ](https://www.rabbitmq.com/), or similar.
 
 
+#### Establishing a Canonical Subject and Enforcing a Deny-by-Default Posture
 
+To establish a canonical subject and enforce a deny-by-default posture with heimdall one would define a so-called default rule:
 
-**Domain-Level Data and Organization-Level Data with Medium or Low Cardinality**
+```yaml
+default_rule:
+  execute:
+    # requires all requests "being authenticated"
+    # via google
+    - authenticator: google
+    # denies all requests
+    - authorizer: deny_all_requests
+    # creates the canonical representation of the
+    # external subject
+    - finalizer: jwt
+  on_error:
+    # triggers authentication flow if the above
+    # google authenticator fails and the request
+    # was sent by a browser
+    - error_handler: authenticate_with_google
+      if: type(Error) == authentication_error && Request.Header("Accept").contains("text/html")
+```
 
-* **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns ensure consistent enforcement and auditability across shared data scopes.
-* **Data Distribution Strategy:** [on-demand data pull](#on-demand-data-pull) or [out-of-band data push](#out-of-band-data-push) are suitable. Both approaches ensure freshness of data, with out-of-band data push also optimizing performance by storing it locally in the PDP eagerly.
-* **Considerations:** Embedded PDPs reduce latency, while external PDPs, such as those implementing ReBAC approaches, support advanced capabilities, such as before-the-fact-audit. [Out-of-band data push](#out-of-band-data-push) requires synchronization pipelines, and [on-demand data pull](#on-demand-data-pull) needs robust PIP availability handling.
+Each step in the two pipelines above (`execute` and `on_error`) references mechanisms from a predefined catalogue. This catalogue is part of heimdall’s configuration and can be tailored to the needs of a particular system. If required, a step can also customize the behavior of the chosen mechanism, as shown in the next section. Other projects similar to heimdall, may require full configuration for every step, or may implement a similar catalogue-based approach.
 
-**Domain-Level Data and Organization-Level Data with High Cardinality**
+#### Service-Specific Rules and "Authorization Contracts"
 
-* **Recommended Pattern:** [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp), or [External PDP](#centralized-service-level-access-control-with-external-pdp), or [Modern Edge-Level Authorization](#edge-level-authorization-modern). These patterns handle complex, shared data while supporting dynamic attribute inclusion.
-* **Data Distribution Strategy:** If [Centralized Service-Level Access Control with Embedded PDP](#centralized-service-level-access-control-with-embedded-pdp) is used, [Request-time data injection](#request-time-data-injection) is essential, as high-cardinality data cannot be fully preloaded due to PDP memory limits, so the PEP must collect attributes from PIPs and include them in the decision request. ReBAC, or NGAC PDP implementations typically address that limitation and can be used as [External PDP](#centralized-service-level-access-control-with-external-pdp). In that case, [out-of-band data push](#out-of-band-data-push) approach can be used.
-* **Considerations:** In centralized models, microservices (as PEPs) handle PIP integration, increasing complexity. In edge-level models, the edge layer manages data enrichment, simplifying microservices but requiring robust edge configuration. Request-time injection ensures scalability but demands reliable PEP data collection.
+Each service can now define deviations as needed. E.g. the wiring service would define a rule to expose public endpoints serving html and related content and another one to allow authenticated and anonymous requests to yet an additional endpoint:
+
+```yaml
+apiVersion: heimdall.dadrus.github.com/v1alpha4
+kind: RuleSet
+metadata:
+  name: "wiring app rules"
+spec:
+  rules:
+    # allow authenticated or anonymous requests to 
+    # the / route for GET requests
+    - id: wiring-app:main-page
+      match:
+        routes:
+          - path: /
+        methods: [ GET ]
+      execute:
+        - authenticator: google
+        - authenticator: anonymous
+        - authorizer: allow_all_requests
+        # jwt finalizer which creates the canonical 
+        # representation of the external subject and the
+        # error handler are reused from the default rule
+
+    # allow all GET requests to any css, js, or ico
+    # resources under / route
+    - id: wiring-app:public-resources
+      match:
+        routes:
+          - path: /:resources
+            path_params:
+              - name: resources
+                type: glob
+                value: "{*.css,*.js,*.ico}"
+        methods: [ GET ]
+      execute:
+        - authenticator: anonymous
+        - authorizer: allow_all_requests
+        # jwt finalizer which creates the canonical 
+        # representation of the external subject and the
+        # error handler are reused from the default rule
+```
+
+The code used to render the html page behind the `/` route can use any standard JOSE library and the public key from heimdall’s `.well-known/jwks` endpoint to validate the issued JWT. This is a very simple application of the [Decentralized Service-Level Authorization](#decentralized-service-level-authorization) pattern. All services using [Protocol-Agnostic Identity Propagation](#protocol-agnostic-identity-propagation) will see the same JWT structure and perform identical verification. And in case of the implementation to write articles, the articles service can simply pass the received JWT downstream to the analysis service along with the article to be verified.
+
+Reading articles makes use of a wider range of [Modern Edge-Level Authorization](#edge-level-authorization-modern) capabilities and establishes an own "Authorization Contract" by extending the JWT created by heimdall with some custom claims:
+
+```yaml
+apiVersion: heimdall.dadrus.github.com/v1alpha4
+kind: RuleSet
+metadata:
+  name: "articles service rules"
+spec:
+  rules:
+    - id: articles-service:read-article
+      match:
+        routes:
+          - path: /articles/:article_id
+        methods: [ GET ]
+      execute:
+        - authenticator: google
+        - authenticator: anonymous
+        - authorizer: allow_all_requests
+        # since the actual enforcement is done in
+        # the implementation of the articles service
+        # a contextualizer is used here instead of
+        # an authorizer
+        - contextualizer: opa
+          config:
+            values:
+              policy: articles/allow
+              action: read
+              # the Subject object is created by the executed
+              # authenticator
+              subject: "{{ .Subject.ID }}"
+              # article_id captures the value from the request
+              # path defined in the match expression above
+              object: "{{ .Request.URL.Captures.article_id }}"
+        # extend the JWT configured in the default
+        # rule with custom claims. A complete rewrite is
+        # also possible instead.
+        - finalizer: jwt
+          config:
+            values:
+              requested_article: "{{ .Request.URL.Captures.article_id }}"
+              allowed_representation: "{{ .Outputs.opa.result }}"
+
+    # other rules, e.g. for requests to write an article
+```
+
+With that in place the implementation of the read article functionality can make use of these custom claims after verifying the JWT received along the request without the need to call OPA directly.
+
+The article write functionality verifies the JWT issued by heimdall as already described for the other services in this example, calls OPA to understand whether writing of articles is allowed and enforces it. If allowed, the corresponding UI representation is rendered to the user. When ready, the user submits the article, resulting in the same checks, followed by a call from the article service to the analysis service for the harassment analysis. Since that check can take a while, the user is redirected to some page explaining the progress. The corresponding rule for heimdall would look similar to the `wiring-app:main-page` shown at the beginning of this section, but without a fallback to the anonymous authenticator.
 
 
